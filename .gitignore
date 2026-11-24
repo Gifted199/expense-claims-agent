@@ -221,3 +221,8 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Project additions
+.claude/settings.local.json
+.ruff_cache/
+.pytest_cache/

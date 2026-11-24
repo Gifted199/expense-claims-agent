@@ -1,0 +1,37 @@
+[project]
+name = "expense-agent"
+version = "0.1.0"
+description = "Expense Claims Assistant: an agentic AI on AWS (MCP tools, RAG, ML anomaly scoring, OCR)."
+readme = "README.md"
+authors = [{ name = "Gifted199" }]
+requires-python = ">=3.12,<3.13"
+dependencies = []
+
+[dependency-groups]
+dev = [
+    "detect-secrets>=1.5",
+    "pre-commit>=4.0",
+    "pre-commit-hooks==6.0.0",
+    "pytest>=8.3",
+    "ruff>=0.8",
+]
+
+[build-system]
+requires = ["uv_build>=0.12.21,<0.13.0"]
+build-backend = "uv_build"
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+# E/W pycodestyle, F pyflakes, I isort, B bugbear, UP pyupgrade, S bandit (security)
+select = ["E", "W", "F", "I", "B", "UP", "S"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101"]  # assert is how pytest works
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
