@@ -92,7 +92,8 @@ class AnomalyModel:
     """What ships to S3: the winning detector plus everything needed to serve it identically.
 
     ``reference`` holds sorted raw scores from the data it was fitted on; ``normalise`` turns a raw
-    score into the share of those claims it is more suspicious than, i.e. a value in [0, 1] (D17).
+    score into the share of those claims that are at most as suspicious, ties included, so a
+    value in [0, 1] (D17). Many ordinary claims tie at the lowest raw score, so the floor is > 0.
     """
 
     detector: Any

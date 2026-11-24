@@ -73,8 +73,10 @@ def bootstrap_ap_interval(
     alpha: float = 0.05,
 ) -> tuple[float, float]:
     """Percentile bootstrap interval for average precision (resampling claims)."""
-    rng = random.Random(seed)  # noqa: S311 - statistics, not cryptography
     n = len(y_true)
+    if n == 0 or sum(y_true) == 0:
+        return 0.0, 0.0
+    rng = random.Random(seed)  # noqa: S311 - statistics, not cryptography
     values: list[float] = []
     for _ in range(n_boot):
         idx = [rng.randrange(n) for _ in range(n)]
@@ -92,6 +94,8 @@ def evaluate(
     scores: Sequence[float], labels: Mapping[int, str], claim_ids: Sequence[int]
 ) -> dict[str, object]:
     """All metrics for one model on one test set."""
+    if not claim_ids:
+        raise ValueError("empty test set: no claims to evaluate")
     types = [labels.get(cid) for cid in claim_ids]
     y = [1 if t else 0 for t in types]
     k = budget_k(len(y))

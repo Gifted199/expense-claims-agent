@@ -71,3 +71,13 @@ def test_evaluate_reports_everything() -> None:
     assert out["n"] == 4 and out["anomalies"] == 1 and out["k"] == 1
     assert out["average_precision"] == 1.0
     assert out["recall_at_k_by_type"] == {"dup": 1.0}
+
+
+def test_bootstrap_handles_no_rows_or_no_anomalies() -> None:
+    assert M.bootstrap_ap_interval([], []) == (0.0, 0.0)
+    assert M.bootstrap_ap_interval([0, 0, 0], [0.1, 0.2, 0.3]) == (0.0, 0.0)
+
+
+def test_evaluate_rejects_empty_test_set() -> None:
+    with pytest.raises(ValueError, match="empty test set"):
+        M.evaluate([], {}, [])

@@ -80,11 +80,14 @@ FEATURES: tuple[FeatureSpec, ...] = (
     FeatureSpec(
         "split_sum_vs_limit",
         "This claim plus the person's earlier claims at the same merchant and category spent "
-        "within a day of it, divided by the per-claim limit.",
+        "within ±1 day of it, divided by the per-claim limit.",
         +1,
     ),
     FeatureSpec(
-        "split_count", "How many claims are in that same-merchant, same-day group (incl. this).", +1
+        "split_count",
+        "How many claims are in that same-merchant, same-category group within ±1 day "
+        "(incl. this).",
+        +1,
     ),
     FeatureSpec("merchant_seen_before", "1 if anyone has claimed at this merchant before.", -1),
     FeatureSpec(

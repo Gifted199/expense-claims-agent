@@ -55,6 +55,7 @@ PRIVILEGE_MATRIX: tuple[tuple[str, str, str, bool], ...] = (
     ("app_ml", "claims", "UPDATE", False),
     ("app_ml", "claims", "DELETE", False),
     ("app_ml", "claim_labels", "UPDATE", False),
+    ("app_ml", "employees", "SELECT", False),  # table-wide revoked in 007; columns below
 )
 
 # (role, table, column, privilege, expected): app_writer may only move claims through the workflow.
@@ -65,6 +66,11 @@ COLUMN_PRIVILEGES: tuple[tuple[str, str, str, str, bool], ...] = (
     ("app_writer", "claims", "amount", "UPDATE", False),
     ("app_writer", "claims", "employee_id", "UPDATE", False),
     ("app_writer", "claims", "incurred_at", "UPDATE", False),
+    # app_ml reads only the employee columns the model needs (007, D22)
+    ("app_ml", "employees", "employee_id", "SELECT", True),
+    ("app_ml", "employees", "grade", "SELECT", True),
+    ("app_ml", "employees", "full_name", "SELECT", False),
+    ("app_ml", "employees", "email", "SELECT", False),
 )
 
 # A claim counts as over limit if it exceeds the per-claim limit, or if the running total of

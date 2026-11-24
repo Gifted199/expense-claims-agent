@@ -49,7 +49,6 @@ class DbSettings:
     ca_bundle: Path = DEFAULT_CA_BUNDLE
     connect_timeout: int = 10
 
-    @classmethod
     def secret_for(self, role: AppRole) -> str:
         """Each secret holds a set of roles; app_ml has its own so the trainer can't read others."""
         return self.ml_secret_id if role == "ml" else self.app_secret_id

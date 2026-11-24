@@ -93,10 +93,10 @@ Add an entry whenever a design decision is made.
 - **Alternatives:** Reuse `app_readonly` (which can't see labels) or master.
 - **Why:**
   - Evaluation needs the labels. Only `records.load_labels` reads them, and a test checks that the feature and model code never mention labels, status or approvals.
-  - A separate secret means a task allowed only the ML secret can't read the app passwords. The trainer also gets the app secret, but only because of the optional `--score-claims` write.
+  - A separate secret means a task allowed only the ML secret can't read the app passwords. The trainer also gets the app secret, but only because of the optional `--score-claims` write. **Superseded by D21:** the trainer no longer has the app secret. Narrowed further by D22.
 
 ### D17: Scores are calibrated to 0–1 by percentile against the training data (2026-11-24, Phase 2)
-- **Decision:** The shipped model stores the sorted raw scores of the claims it was fitted on. A score is the share of those claims the new one is more suspicious than.
+- **Decision:** The shipped model stores the sorted raw scores of the claims it was fitted on. A score is the share of those claims that are at most as suspicious as the new one, ties included (see the D17 amendment below).
 - **Alternatives:** Raw model scores (which differ in scale between models); min-max scaling.
 - **Why:** `claims.anomaly_score` is constrained to 0–1, and "more unusual than 97% of claims" is easy to explain. The reference ships inside `model.joblib`, so Phase 4 serving gives identical numbers.
 
@@ -114,3 +114,23 @@ Add an entry whenever a design decision is made.
 - **Decision:** Set `AWS_PROFILE=aero` and run `docker push` directly. Docker is configured with `credHelpers` for `666127452756.dkr.ecr.eu-west-2.amazonaws.com` = `ecr-login`.
 - **Alternatives:** `aws ecr get-login-password | docker login …`
 - **Why:** That pipe fails on this laptop ("The stub received bad data"). The credential helper fetches short-lived tokens itself, and no password passes through the shell.
+
+### D21: The trainer doesn't write scores; `--score-claims` is an admin-only backfill (2026-11-24, Phase 2)
+- **Decision:**
+  - The trainer's task role can read **only** `akinsds1126-expense-db-ml` and write under `s3://akinsds1126-expense-artifacts/models/anomaly/*`.
+  - Task definition revision 2 has no command: it trains, evaluates and publishes, and never writes to the database.
+  - The one-off backfill from run 1 (`20261124T170142Z-431e8b4`, revision 1 with `--score-claims`) already scored all existing claims. Phase 4 scores new claims at submit time.
+  - The `--score-claims` code path remains as an **admin-only, one-off backfill**. If it's ever needed again, it **must** run with a dedicated narrow role, for example `app_scorer` with only `UPDATE (anomaly_score) ON claims` and its own secret, **never** with the `-db-app` secret.
+- **Alternatives:** A separate `app_scorer` role now; keeping `-db-app` access (the original plan).
+- **Why:** The Phase 2 review found that the `-db-app` secret holds the `app_writer` password, and `app_writer` can change `claims.status`. A compromised trainer could therefore push claims through approval. The trainer only needs to read data and publish files. This supersedes the `-db-app` part of D16.
+
+### D22: app_ml reads only `employee_id` and `grade` from employees (2026-11-24, Phase 2)
+- **Decision:** Migration 007 replaces table-wide SELECT on `employees` with `SELECT (employee_id, grade)`.
+- **Alternatives:** Full table SELECT (migration 006).
+- **Why:** The model needs only the grade, to look up limits. Names and emails are personal data, synthetic or not, and the trainer has no reason to see them. `verify.py` checks both the allowed and the denied columns.
+
+### D17 amendment: score wording and the floor (2026-11-24, Phase 2)
+- A score is the share of reference claims that are **at most as suspicious** as this one, **ties included** (`bisect_right`). It doesn't mean "more suspicious than".
+- About 27% of ordinary claims tie at the lowest raw score, so the lowest stored score is about 0.27, not 0.
+- **Phase 4 thresholds must sit near the top**, for example 0.95 or more for "high".
+- The existing scores and the shipped model use this definition, so it stays unchanged.
