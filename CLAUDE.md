@@ -27,9 +27,24 @@ uv run python -m detect_secrets scan --baseline .secrets.baseline  # refresh sec
 
 The pre-commit-hooks file checks are defined as `repo: local` hooks that run with `uv run python -m pre_commit_hooks.<module>`, because Windows Application Control blocks pip's `.exe` launchers.
 
+Database (RDS, eu-west-2). Credentials are always read from Secrets Manager, never hardcoded. See [docs/DATA.md](docs/DATA.md).
+```bash
+uv run python -m expense_agent.db.migrate --profile aero     # apply sql/NNN_*.sql (idempotent)
+uv run python -m expense_agent.db.app_roles --profile aero   # set app-role passwords from secret
+uv run python -m expense_agent.db.seed --profile aero        # load synthetic data (--reset to reload)
+uv run python -m expense_agent.db.verify --profile aero      # counts, anomaly rate, privilege checks
+```
+- Schema changes go in a **new** `sql/NNN_name.sql`. Never edit an applied migration (checksums are enforced).
+- Code uses `expense_agent.db.connection.connect(role)`: `readonly` for query tools, `writer` for the workflow, `master` only for migrations and seeding.
+- `claim_labels` is eval-only. App code, model features and the agent must never read it.
+
+Slash command: `/review-phase <N>` reviews the current diff against Phase N's "Done when" in PLAN.md.
+
 ## Secret scanning
 gitleaks runs in CI because Windows Application Control blocks unsigned binaries locally. detect-secrets covers local commits, using `.secrets.baseline`.
-Slash command: `/review-phase <N>` reviews the current diff against Phase N's "Done when" in PLAN.md.
+
+## Decision log
+Whenever we make a design decision, add an entry to [docs/DECISIONS.md](docs/DECISIONS.md): decision, alternatives, why.
 
 ## Git workflow (mandatory)
 - One branch per phase: `phase-<N>-<slug>` (e.g. `phase-0-foundation`).

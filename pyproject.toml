@@ -5,7 +5,10 @@ description = "Expense Claims Assistant: an agentic AI on AWS (MCP tools, RAG, M
 readme = "README.md"
 authors = [{ name = "Gifted199" }]
 requires-python = ">=3.12,<3.13"
-dependencies = []
+dependencies = [
+    "boto3>=1.35",
+    "psycopg[binary]>=3.2",
+]
 
 [dependency-groups]
 dev = [
@@ -30,7 +33,7 @@ src = ["src", "tests"]
 select = ["E", "W", "F", "I", "B", "UP", "S"]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["S101"]  # assert is how pytest works
+"tests/**" = ["S101", "S105", "S106"]  # pytest asserts; fake credentials in fixtures
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
