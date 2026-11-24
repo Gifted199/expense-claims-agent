@@ -1,12 +1,14 @@
-"""Set passwords for app_readonly / app_writer from the Secrets Manager secret.
+"""Set passwords for the app roles from their Secrets Manager secrets.
 
     uv run python -m expense_agent.db.app_roles --profile aero [--create-secret]
 
-- If the secret ``akinsds1126-expense-db-app`` exists, its passwords are reused (no surprise
-  rotation) and applied to the roles.
-- If it does not exist, the script stops unless ``--create-secret`` is given; then it generates
-  strong random passwords, creates the secret FIRST, and only then sets the role passwords.
-Passwords are never printed or written to disk.
+Secrets and the roles they hold (see DbSettings.roles_by_secret):
+- ``akinsds1126-expense-db-app``: app_readonly, app_writer
+- ``akinsds1126-expense-db-ml``: app_ml (separate, so the trainer can't read the other passwords)
+
+Existing secrets are reused (no surprise rotation). A missing secret stops the script unless
+``--create-secret`` is given; then strong random passwords are generated, the secret is created
+FIRST, and only then are the role passwords set. Passwords are never printed or written to disk.
 """
 
 from __future__ import annotations
@@ -19,7 +21,6 @@ from collections.abc import Sequence
 from typing import Any
 
 from expense_agent.db.connection import (
-    APP_ROLE_NAMES,
     DbSettings,
     SecretNotFoundError,
     add_profile_argument,
@@ -35,15 +36,15 @@ TAGS = [
 ]
 
 
-def new_secret_payload(host: str, port: int, dbname: str) -> dict[str, Any]:
+def new_secret_payload(
+    host: str, port: int, dbname: str, roles: Sequence[str] | None = None
+) -> dict[str, Any]:
+    roles = tuple(roles) if roles is not None else ("app_readonly", "app_writer")
     return {
         "host": host,
         "port": port,
         "dbname": dbname,
-        **{
-            name: {"username": name, "password": secrets.token_urlsafe(32)}
-            for name in APP_ROLE_NAMES.values()
-        },
+        **{name: {"username": name, "password": secrets.token_urlsafe(32)} for name in roles},
     }
 
 
@@ -64,7 +65,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     add_profile_argument(parser)
     parser.add_argument(
-        "--create-secret", action="store_true", help="create the app secret if it does not exist"
+        "--create-secret", action="store_true", help="create any role secret that does not exist"
     )
     args = parser.parse_args(argv)
 
@@ -72,29 +73,35 @@ def main(argv: Sequence[str] | None = None) -> int:
     session = make_session(args.profile, settings.region)
     master = get_master_credentials(session, settings)
 
-    try:
-        payload = get_secret_json(session, settings.app_secret_id)
-        print(f"using existing secret {settings.app_secret_id}")
-    except SecretNotFoundError:
-        if not args.create_secret:
-            print(
-                f"secret {settings.app_secret_id} does not exist; re-run with --create-secret",
-                file=sys.stderr,
-            )
-            return 1
-        payload = new_secret_payload(master.host, master.port, settings.dbname)
+    # Resolve every secret first, so nothing is changed if one is missing without the flag.
+    payloads: dict[str, dict[str, Any]] = {}
+    missing: list[str] = []
+    for secret_id in settings.roles_by_secret():
+        try:
+            payloads[secret_id] = get_secret_json(session, secret_id)
+            print(f"using existing secret {secret_id}")
+        except SecretNotFoundError:
+            missing.append(secret_id)
+    if missing and not args.create_secret:
+        print(f"secret(s) {missing} do not exist; re-run with --create-secret", file=sys.stderr)
+        return 1
+    for secret_id in missing:
+        roles = settings.roles_by_secret()[secret_id]
+        payload = new_secret_payload(master.host, master.port, settings.dbname, roles)
         session.client("secretsmanager").create_secret(
-            Name=settings.app_secret_id,
-            Description="Expense agent DB app roles (app_readonly, app_writer)",
+            Name=secret_id,
+            Description=f"Expense agent DB roles ({', '.join(roles)})",
             SecretString=json.dumps(payload),
             Tags=TAGS,
         )
-        print(f"created secret {settings.app_secret_id}")
+        payloads[secret_id] = payload
+        print(f"created secret {secret_id}")
 
     with psycopg.connect(**connect_kwargs(master, settings), autocommit=True) as conn:
-        for role in APP_ROLE_NAMES.values():
-            alter_role_password(conn, role, payload[role]["password"])
-            print(f"password set for {role}")
+        for secret_id, roles in settings.roles_by_secret().items():
+            for role in roles:
+                alter_role_password(conn, role, payloads[secret_id][role]["password"])
+                print(f"password set for {role}")
     return 0
 
 

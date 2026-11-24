@@ -1,0 +1,20 @@
+# Only pyproject.toml, uv.lock, README.md, src/ and certs/ are needed by the images.
+.git
+.github
+.claude
+.venv
+**/__pycache__
+**/*.pyc
+.pytest_cache
+.ruff_cache
+.env
+.env.*
+*.pem.key
+tests
+docs
+sql
+ui
+infra
+docker
+.secrets.baseline
+.pre-commit-config.yaml
