@@ -134,3 +134,11 @@ Add an entry whenever a design decision is made.
 - About 27% of ordinary claims tie at the lowest raw score, so the lowest stored score is about 0.27, not 0.
 - **Phase 4 thresholds must sit near the top**, for example 0.95 or more for "high".
 - The existing scores and the shipped model use this definition, so it stays unchanged.
+
+### D23: gitleaks false positives are ignored by exact fingerprint only (2026-11-24, Phase 2)
+- **Decision:** A confirmed false positive goes into `.gitleaksignore` as one exact fingerprint (`commit:file:rule:line`) with a comment explaining why. No path, rule or wildcard ignores.
+  - The first entry is the D16 line in commit `431e8b4`, where the `generic-api-key` rule matched the sentence giving the *name* of the ML database's Secrets Manager entry. A name, not a credential.
+- **Alternatives:**
+  - Rewriting history to remove the line. That needs a force-push, which the project's deny rules forbid, and it buys nothing because the value isn't a secret.
+  - Disabling the rule, or ignoring `docs/`, which would hide real leaks.
+- **Why:** A fingerprint silences only that one finding in that one commit, so the full-history scan still catches any real secret anywhere. Every ignore is visible and reviewable in git.
