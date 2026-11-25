@@ -15,7 +15,7 @@
   "containerDefinitions": [
     {
       "name": "ingest",
-      "image": "666127452756.dkr.ecr.eu-west-2.amazonaws.com/akinsds1126-expense-ingest:0393eda22a96c95ad8dbcc53d5cad055e1c942ba",
+      "image": "666127452756.dkr.ecr.eu-west-2.amazonaws.com/akinsds1126-expense-ingest:358a794b7274f34c96419c00164fb50d3b77c59c",
       "essential": true,
       "command": [
         "--models",
