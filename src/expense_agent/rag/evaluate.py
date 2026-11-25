@@ -37,10 +37,8 @@ class Question:
         return self.type != "out_of_scope"
 
 
-def load_questions() -> list[Question]:
-    raw = json.loads(
-        resources.files("expense_agent.rag").joinpath("eval_questions.json").read_text("utf-8")
-    )
+def load_questions(filename: str = "eval_questions.json") -> list[Question]:
+    raw = json.loads(resources.files("expense_agent.rag").joinpath(filename).read_text("utf-8"))
     return [Question(q["id"], q["question"], q["type"], tuple(q["expected_sections"])) for q in raw]
 
 

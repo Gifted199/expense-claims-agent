@@ -90,3 +90,18 @@ def test_top_similarities() -> None:
     qs = [q("a", ("EXP-1",)), q("b", ("EXP-2",)), q("z", (), "out_of_scope")]
     out = E.top_similarities(qs, lambda x: {"a": 0.6, "b": 0.5, "z": 0.3}[x.id])
     assert out["separable"] and out["in_scope_min"] == 0.5 and out["out_of_scope_max"] == 0.3
+
+
+def test_holdout_set_shape(policy_data: PolicyData) -> None:
+    held = E.load_questions("eval_questions_holdout.json")
+    original = E.load_questions()
+    assert len(held) == 10
+    assert Counter(x.type for x in held) == {"exact": 5, "paraphrase": 5}
+    assert not {x.id for x in held} & {x.id for x in original}
+    assert not {x.question for x in held} & {x.question for x in original}
+    from expense_agent.rag.search import section_ids_in
+
+    for x in held:
+        assert bool(section_ids_in(x.question)) == (x.type == "exact"), x.id
+    sids = {c.section_id for c in chunk_handbook(render(policy_data, LATEST))}
+    assert all(e in sids for x in held for e in x.expected_sections)

@@ -12,13 +12,15 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass, replace
 from typing import Any, Literal
 
-Method = Literal["vector", "keyword", "hybrid"]
-METHODS: tuple[Method, ...] = ("vector", "keyword", "hybrid")
+Method = Literal["vector", "keyword", "hybrid", "vector_id"]
+METHODS: tuple[Method, ...] = ("vector", "keyword", "hybrid", "vector_id")
 RRF_K = 60
 CANDIDATES = 20
 SECTION_ID_RE = re.compile(r"\bEXP-\d+(?:\.\d+)?\b", re.IGNORECASE)
 _WORD_RE = re.compile(r"[a-z0-9]+")
-DEFAULT_METHOD: Method = "hybrid"  # confirmed or replaced by the Phase 3 evaluation (docs/RAG.md)
+# Production: the pre-declared winner (vector, text-embedding-3-large) plus the exact-ID lookup
+# added after Run A (D31). See docs/RAG.md.
+DEFAULT_METHOD: Method = "vector_id"
 
 Embed = Callable[[str], Sequence[float]]
 
@@ -112,6 +114,28 @@ def keyword_search(conn: Any, question: str, model: str, k: int) -> list[Passage
     return out[:k]
 
 
+def exact_section_passages(conn: Any, question: str, model: str, k: int) -> list[Passage]:
+    """Sections the question cites by ID (EXP-n or EXP-n.m) that exist in the LATEST handbook.
+    A deterministic lookup, not a model: unknown IDs simply return nothing."""
+    ids = section_ids_in(question)
+    if not ids:
+        return []
+    return _passages(conn.execute(SECTION_ID_SQL, (model, ids, k)).fetchall(), "exact_id")
+
+
+def vector_id_search(
+    conn: Any, question: str, qvec: Sequence[float], model: str, k: int
+) -> list[Passage]:
+    """Vector search with the exact-ID shortcut (D31): cited sections first, then vector results.
+    With no ID in the question this is exactly ``vector_search``."""
+    lead = exact_section_passages(conn, question, model, k)
+    if not lead:
+        return vector_search(conn, qvec, model, k)
+    seen = {p.key for p in lead}
+    rest = [p for p in vector_search(conn, qvec, model, k) if p.key not in seen]
+    return (lead + rest)[:k]
+
+
 def rrf(rankings: Sequence[Sequence[Passage]], k: int, rrf_k: int = RRF_K) -> list[Passage]:
     """Reciprocal Rank Fusion: score = sum over lists of 1 / (rrf_k + rank), rank from 1."""
     scores: dict[tuple[str, int], float] = {}
@@ -147,6 +171,8 @@ def search(
     qvec = embed(question)  # always the SAME model as the stored chunks
     if method == "vector":
         return vector_search(conn, qvec, model, k)
+    if method == "vector_id":
+        return vector_id_search(conn, question, qvec, model, k)
     return hybrid_search(conn, question, qvec, model, k)
 
 

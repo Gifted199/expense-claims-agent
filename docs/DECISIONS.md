@@ -208,3 +208,16 @@ Add an entry whenever a design decision is made.
 - **Decision:** The pre-commit detect-secrets hook is a `repo: local` hook running `uv run python -m detect_secrets.pre_commit_hook --baseline .secrets.baseline`, with `detect-secrets==1.5.0` pinned in the dev group. This is the same version the remote hook used.
 - **Alternatives:** Keep the remote hook and skip it locally; replace the tool.
 - **Why:** Windows Application Control started blocking the remote hook's `.exe` launcher, the same problem the Phase 0 file checks had. It's the same scanner, the same version and the same baseline, launched through Python. CI on Linux runs it too, together with the full-history gitleaks scan.
+
+### D31: Exact section-ID lookup added to the winning vector search, after Run A (2026-11-25, Phase 3)
+- **Decision:** Production retrieval is the pre-declared winner, **vector search with text-embedding-3-large** (Run A, D26). On top of it sits a deterministic step, method `vector_id`:
+  - If the question contains an `EXP-n` or `EXP-n.m` ID that **exists in the latest handbook**, those sections are returned first.
+  - The remaining places are filled from vector search, without duplicates.
+  - With no ID in the question, the result is exactly vector search.
+- **This was added after seeing Run A's results**, and is marked here as a post-hoc change. Run A's numbers stay in `docs/RAG.md` unchanged, as the pre-declared outcome.
+- **Validation:** a new held-out set of 10 questions, `eval_questions_holdout.json`, committed in `dac8f3e` **before** the shortcut was written or run:
+  - 5 cite IDs in varied phrasings
+  - 5 are plain paraphrases, to show nothing else changes
+  - Before and after results are reported on both the original 30 and the new 10.
+- **Alternatives:** Switch to hybrid (better on IDs, but worse MRR and it misses the deadline question); leave the gap.
+- **Why:** Users and the agent will cite sections by ID ("what does EXP-6.3 say?"). Vector embeddings don't match ID strings reliably. A lookup has no parameters to tune, so it can't overfit. It only acts when a real, current section ID is present.

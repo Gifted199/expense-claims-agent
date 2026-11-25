@@ -168,6 +168,10 @@ def prune(conn: Any, keep_models: Sequence[str]) -> int:
     return int(getattr(cur, "rowcount", 0) or 0)
 
 
+QUESTION_SETS = {"original": "eval_questions.json", "holdout": "eval_questions_holdout.json"}
+PRE_DECLARED_METHODS = ("vector", "keyword", "hybrid")  # vector_id was added after Run A (D31)
+
+
 def evaluate_all(
     conn: Any,
     models: Sequence[str],
@@ -180,72 +184,96 @@ def evaluate_all(
         score_rankings,
         top_similarities,
     )
-    from expense_agent.rag.search import hybrid_search, keyword_search, vector_search
+    from expense_agent.rag.search import (
+        hybrid_search,
+        keyword_search,
+        vector_id_search,
+        vector_search,
+    )
 
-    questions = load_questions()
-    combos: dict[str, dict[str, Any]] = {}
+    sets = {name: load_questions(fname) for name, fname in QUESTION_SETS.items()}
+    combos: dict[str, dict[str, dict[str, Any]]] = {name: {} for name in sets}
     out_of_scope: dict[str, Any] = {}
     latest_ok = True
     deadline_ok = True
     for i, model in enumerate(models):
-        qvecs = dict(
-            zip(
-                [q.id for q in questions],
-                embed([q.question for q in questions], model),  # SAME model as the chunks
-                strict=True,
+        for set_name, questions in sets.items():
+            qvecs = dict(
+                zip(
+                    [q.id for q in questions],
+                    embed([q.question for q in questions], model),  # SAME model as the chunks
+                    strict=True,
+                )
             )
-        )
-        runs: dict[str, dict[str, list[Any]]] = {"vector": {}, "hybrid": {}}
-        if i == 0:
-            runs["keyword"] = {}  # model-independent: computed once
-        for q in questions:
-            runs["vector"][q.id] = vector_search(conn, qvecs[q.id], model, k)
-            runs["hybrid"][q.id] = hybrid_search(conn, q.question, qvecs[q.id], model, k)
-            if "keyword" in runs:
-                runs["keyword"][q.id] = keyword_search(conn, q.question, model, k)
-        for method, by_q in runs.items():
-            key = "keyword" if method == "keyword" else f"{method}/{model}"
-            combos[key] = score_rankings(
-                questions, {qid: [p.section_id for p in ps] for qid, ps in by_q.items()}
-            )
-            for ps in by_q.values():
-                latest_ok &= all(p.version == LATEST.version for p in ps)
-            deadline = by_q.get("q01", [])
-            text = " ".join(p.text for p in deadline)
-            deadline_ok &= f"{PREVIOUS.deadline_days} days" not in text  # old text never served
-        top = {qid: (ps[0].score if ps else 0.0) for qid, ps in runs["vector"].items()}
-        out_of_scope[model] = top_similarities(questions, lambda q, t=top: t[q.id])
-    n_in_scope = sum(1 for q in questions if q.in_scope)
-    winner = choose_winner(combos, n_in_scope)
+            runs: dict[str, dict[str, list[Any]]] = {"vector": {}, "hybrid": {}, "vector_id": {}}
+            if i == 0:
+                runs["keyword"] = {}  # model-independent: computed once
+            for q in questions:
+                v = qvecs[q.id]
+                runs["vector"][q.id] = vector_search(conn, v, model, k)
+                runs["hybrid"][q.id] = hybrid_search(conn, q.question, v, model, k)
+                runs["vector_id"][q.id] = vector_id_search(conn, q.question, v, model, k)
+                if "keyword" in runs:
+                    runs["keyword"][q.id] = keyword_search(conn, q.question, model, k)
+            for method, by_q in runs.items():
+                key = "keyword" if method == "keyword" else f"{method}/{model}"
+                combos[set_name][key] = score_rankings(
+                    questions, {qid: [p.section_id for p in ps] for qid, ps in by_q.items()}
+                )
+                for ps in by_q.values():
+                    latest_ok &= all(p.version == LATEST.version for p in ps)
+                text = " ".join(p.text for p in by_q.get("q01", []))
+                deadline_ok &= f"{PREVIOUS.deadline_days} days" not in text  # old text never
+            if any(not q.in_scope for q in questions):
+                top = {qid: (ps[0].score if ps else 0.0) for qid, ps in runs["vector"].items()}
+                out_of_scope[model] = top_similarities(questions, lambda q, t=top: t[q.id])
+    original = sets["original"]
+    n_in_scope = sum(1 for q in original if q.in_scope)
+    pre_declared = {
+        key: m
+        for key, m in combos["original"].items()
+        if key.partition("/")[0] in PRE_DECLARED_METHODS
+    }
+    winner = choose_winner(pre_declared, n_in_scope)
     return {
         "k": k,
-        "n_questions": len(questions),
+        "n_questions": len(original),
         "n_in_scope": n_in_scope,
-        "combos": combos,
+        "n_holdout": len(sets["holdout"]),
+        "combos": combos["original"],
+        "holdout_combos": combos["holdout"],
         "out_of_scope_similarity": out_of_scope,
         "latest_only_ok": latest_ok,
         "deadline_uses_latest_text": deadline_ok,
         "winner": winner,
         "winner_model": winner.partition("/")[2] or None,
         "selection_rule": (
-            "Recall@5 (ties within one question), then MRR (ties within 0.01), "
-            "then cost keyword<small<large, then simplicity keyword<vector<hybrid"
+            "Pre-declared methods only (vector, keyword, hybrid): Recall@5 (ties within one "
+            "question), then MRR (ties within 0.01), then cost keyword<small<large, then "
+            "simplicity keyword<vector<hybrid"
         ),
     }
 
 
-def results_markdown(results: dict[str, Any]) -> str:
+def _table(combos: dict[str, dict[str, Any]]) -> list[str]:
     lines = [
-        f"In-scope questions: {results['n_in_scope']} of {results['n_questions']}.",
-        "",
         "| Method / model | Recall@3 | Recall@5 | MRR | Misses@5 |",
         "|---|---|---|---|---|",
     ]
-    for key, m in sorted(results["combos"].items(), key=lambda kv: (-kv[1]["recall@5"], kv[0])):
+    for key, m in sorted(combos.items(), key=lambda kv: (-kv[1]["recall@5"], kv[0])):
         lines.append(
             f"| {key} | {m['recall@3']:.3f} | {m['recall@5']:.3f} | {m['mrr']:.3f} "
             f"| {', '.join(m['misses@5']) or '-'} |"
         )
+    return lines
+
+
+def results_markdown(results: dict[str, Any]) -> str:
+    lines = [f"Original set: {results['n_in_scope']} in-scope of {results['n_questions']}.", ""]
+    lines += _table(results["combos"])
+    if results.get("holdout_combos"):
+        lines += ["", f"Held-out set: {results.get('n_holdout', '?')} questions.", ""]
+        lines += _table(results["holdout_combos"])
     lines += ["", f"Winner (pre-declared rule): **{results['winner']}**", ""]
     lines.append(
         f"Latest-only check: {results['latest_only_ok']}; "

@@ -117,3 +117,34 @@ def test_search_embeds_question_only_for_vector_methods() -> None:
     assert seen == []
     S.search(conn, "taxi", "vector", "m1", embed)
     assert seen == ["taxi"]
+
+
+def test_vector_id_puts_cited_existing_section_first_then_vector() -> None:
+    conn = FakeConn(
+        {
+            S.SECTION_ID_SQL: [row("EXP-9.1")],
+            S.VECTOR_SQL: [row("EXP-9.2"), row("EXP-9.1"), row("EXP-9.3")],
+        }
+    )
+    out = S.vector_id_search(conn, "explain section exp-9.1", [0.0], "m1", 3)
+    assert [p.section_id for p in out] == ["EXP-9.1", "EXP-9.2", "EXP-9.3"]  # no duplicate
+    assert out[0].method == "exact_id"
+
+
+def test_vector_id_without_id_is_exactly_vector_search() -> None:
+    answers = {S.VECTOR_SQL: [row("EXP-6.3"), row("EXP-6.1")]}
+    a, b = FakeConn(answers), FakeConn(answers)
+    got = S.vector_id_search(a, "hotel cap in Edinburgh", [0.1], "m1", 2)
+    want = S.vector_search(b, [0.1], "m1", 2)
+    assert got == want
+    assert all(sql != S.SECTION_ID_SQL for sql, _ in a.calls)
+
+
+def test_vector_id_unknown_id_falls_back_to_vector() -> None:
+    conn = FakeConn({S.SECTION_ID_SQL: [], S.VECTOR_SQL: [row("EXP-1.1")]})
+    out = S.vector_id_search(conn, "what is EXP-99.9", [0.0], "m1", 3)
+    assert [p.section_id for p in out] == ["EXP-1.1"]
+
+
+def test_default_method_is_vector_with_id_shortcut() -> None:
+    assert S.DEFAULT_METHOD == "vector_id" and "vector_id" in S.METHODS
