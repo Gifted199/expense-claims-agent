@@ -19,13 +19,14 @@ if TYPE_CHECKING:  # pragma: no cover
     import boto3
     import psycopg
 
-Role = Literal["master", "readonly", "writer", "ml"]
-AppRole = Literal["readonly", "writer", "ml"]
+Role = Literal["master", "readonly", "writer", "ml", "ingest"]
+AppRole = Literal["readonly", "writer", "ml", "ingest"]
 
 APP_ROLE_NAMES: dict[AppRole, str] = {
     "readonly": "app_readonly",
     "writer": "app_writer",
     "ml": "app_ml",
+    "ingest": "app_ingest",
 }
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -46,17 +47,23 @@ class DbSettings:
     region: str = "eu-west-2"
     app_secret_id: str = "akinsds1126-expense-db-app"  # noqa: S105 - secret *name*, not a value
     ml_secret_id: str = "akinsds1126-expense-db-ml"  # noqa: S105 - secret *name*, not a value
+    ingest_secret_id: str = "akinsds1126-expense-db-ingest"  # noqa: S105 - a *name*
     ca_bundle: Path = DEFAULT_CA_BUNDLE
     connect_timeout: int = 10
 
     def secret_for(self, role: AppRole) -> str:
         """Each secret holds a set of roles; app_ml has its own so the trainer can't read others."""
-        return self.ml_secret_id if role == "ml" else self.app_secret_id
+        if role == "ml":
+            return self.ml_secret_id
+        if role == "ingest":
+            return self.ingest_secret_id
+        return self.app_secret_id
 
     def roles_by_secret(self) -> dict[str, tuple[str, ...]]:
         return {
             self.app_secret_id: (APP_ROLE_NAMES["readonly"], APP_ROLE_NAMES["writer"]),
             self.ml_secret_id: (APP_ROLE_NAMES["ml"],),
+            self.ingest_secret_id: (APP_ROLE_NAMES["ingest"],),
         }
 
     @classmethod
@@ -68,6 +75,7 @@ class DbSettings:
             region=os.environ.get("AWS_REGION", d.region),
             app_secret_id=os.environ.get("EXPENSE_DB_APP_SECRET_ID", d.app_secret_id),
             ml_secret_id=os.environ.get("EXPENSE_DB_ML_SECRET_ID", d.ml_secret_id),
+            ingest_secret_id=os.environ.get("EXPENSE_DB_INGEST_SECRET_ID", d.ingest_secret_id),
             ca_bundle=Path(os.environ.get("EXPENSE_DB_CA_BUNDLE", str(d.ca_bundle))),
         )
 

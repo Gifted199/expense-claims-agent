@@ -89,7 +89,7 @@ Add an entry whenever a design decision is made.
 - **Why:** The agent and UI images (Phase 6) don't need about 400 MB of numerical libraries.
 
 ### D16: Dedicated read-only `app_ml` role with its own secret (2026-11-24, Phase 2)
-- **Decision:** Migration 006 creates `app_ml`, which has SELECT on claims, employees, policy_limits, expense_categories and **claim_labels**, read-only transactions by default, and nothing else. Its password lives in a separate secret, `akinsds1126-expense-db-ml`.
+- **Decision:** Migration 006 creates `app_ml`, which has SELECT on claims, employees, policy_limits, expense_categories and **claim_labels**, read-only transactions by default, and nothing else. Its password is stored in the Secrets Manager entry named `akinsds1126-expense-db-ml`.
 - **Alternatives:** Reuse `app_readonly` (which can't see labels) or master.
 - **Why:**
   - Evaluation needs the labels. Only `records.load_labels` reads them, and a test checks that the feature and model code never mention labels, status or approvals.
@@ -135,10 +135,102 @@ Add an entry whenever a design decision is made.
 - **Phase 4 thresholds must sit near the top**, for example 0.95 or more for "high".
 - The existing scores and the shipped model use this definition, so it stays unchanged.
 
-### D23: gitleaks false positives are ignored by exact fingerprint only (2026-11-24, Phase 2)
-- **Decision:** A confirmed false positive goes into `.gitleaksignore` as one exact fingerprint (`commit:file:rule:line`) with a comment explaining why. No path, rule or wildcard ignores.
-  - The first entry is the D16 line in commit `431e8b4`, where the `generic-api-key` rule matched the sentence giving the *name* of the ML database's Secrets Manager entry. A name, not a credential.
+### D23: gitleaks: secret names allowlisted by pattern, values never; fingerprints for history only (2026-11-24, Phase 2; revised 2026-11-25, Phase 3)
+- **Decision:**
+  - `.gitleaks.toml` extends the default rules (`useDefault = true`) with one allowlist: a matched *value* that is exactly a project Secrets Manager entry **name** (`^akinsds1126-expense-[a-z0-9-]+$`, `regexTarget = "secret"`). Names are not credentials.
+  - Secret **values** are never allowlisted. Nothing is allowlisted by path, rule or commit.
+  - `.gitleaksignore` holds exact fingerprints (`commit:file:rule:line`) **only for historic findings** already in git history, each with a comment.
+  - CI proves the config still bites: `scripts/gitleaks_selftest.py` writes a fixed fake AWS access key ID (assembled from parts at run time, so the literal is never in the repo) and requires gitleaks to flag it, 20 times in a row. A random key was tried first and was flaky: gitleaks' generic rule skips values containing a stopword, which a random string sometimes does, and requires a line naming `akinsds1126-expense-azure-openai` to pass. `tests/test_gitleaks_config.py` checks the allowlist shape and regex.
 - **Alternatives:**
-  - Rewriting history to remove the line. That needs a force-push, which the project's deny rules forbid, and it buys nothing because the value isn't a secret.
-  - Disabling the rule, or ignoring `docs/`, which would hide real leaks.
-- **Why:** A fingerprint silences only that one finding in that one commit, so the full-history scan still catches any real secret anywhere. Every ignore is visible and reviewable in git.
+  - Fingerprints only (the first version of this decision). Fragile: a squash merge creates a new commit, so every merge needed new fingerprints, and every new file naming a secret failed CI again.
+  - Rewriting history (needs a force-push, which is forbidden) or disabling the rule or ignoring `docs/` (hides real leaks).
+- **Why:** It fixes the cause (names look like keys to the generic rule) without weakening detection of real values, and the self-test fails CI if the allowlist ever becomes too broad.
+- **Known limit:** a value that is all lowercase and starts with `akinsds1126-expense-` would also pass. Real Azure keys and generated passwords don't have that shape, and detect-secrets still scans locally.
+
+### D24: The handbook is generated from the database; two versions kept, only the latest searched (2026-11-25, Phase 3)
+- **Decision:** `rag/handbook.py` renders the Markdown handbook from `policy_limits`, `expense_categories` (receipt thresholds) and the new `policy_city_hotel_caps`.
+  - **No money figure is typed into the prose.** A test checks that every £ amount comes from those tables.
+  - The mileage rate is referred to by name only ("the approved mileage allowance rate set by Finance"), because no table holds it.
+  - Two versions are kept: 2025.1 (previous: 60-day deadline, softer split wording, no city table) and 2026.1 (latest).
+  - Both are uploaded to `s3://akinsds1126-expense-artifacts/policy/<version>/`. Only the version flagged `is_latest` is ever searched.
+  - The city caps are reference data seeded in migration 008, not by `seed --reset`, which would wipe the Phase 2 anomaly scores.
+- **Alternatives:** A hand-written handbook; city guidance in prose only.
+- **Why:** If the handbook and the workflow read different numbers, the assistant could cite a limit that the system doesn't enforce. Generating both from one table makes that impossible. Keeping the old version supports audit ("what did the policy say in March?"), and the `is_latest` filter keeps it out of answers.
+
+### D25: Structure-aware chunking: one subsection per chunk (2026-11-25, Phase 3)
+- **Decision:** One chunk per `### EXP-n.m` subsection, plus one per section intro.
+  - A chunk never crosses a subsection.
+  - Its text starts with the heading path, for example "EXP-6 Travel and hotels > EXP-6.3 Hotels by city".
+  - Sections over about 1,800 characters split at paragraph or table-row boundaries, with the table header repeated in each part.
+- **Alternatives:** Fixed-size windows with overlap; whole sections.
+- **Why:**
+  - Every chunk maps to exactly one citation.
+  - Tables stay readable.
+  - The heading path gives the embedding context ("hotels", "limits") that the body alone might lack.
+  - The handbook's subsections are short (45 chunks, all under 600 characters), so there's no need for windows.
+
+### D26: Retrieval methods and a selection rule fixed before the run (2026-11-25, Phase 3)
+- **Decision:** Three methods, all filtered to `is_latest` and one embedding model:
+  - **vector:** cosine distance via HNSW, with `hnsw.iterative_scan = strict_order` so filtered queries still return k rows.
+  - **keyword:** the question's words joined with OR into `to_tsquery('english')`, ranked by `ts_rank_cd`. An exact `EXP-n(.m)` in the question is looked up directly and ranked first.
+  - **hybrid:** Reciprocal Rank Fusion (score = Σ 1/(60 + rank)) of the top 20 from vector and from keyword.
+  - **Selection rule, written down before the run:** highest Recall@5 (within one question is a tie), then MRR (within 0.01 is a tie), then cheaper (keyword < small < large), then simpler (keyword < vector < hybrid).
+- **Alternatives:** `websearch_to_tsquery`, which ANDs every word, so natural questions rarely match; a learned re-ranker; picking the method after looking at the results.
+- **Why:**
+  - RRF needs no score calibration between the two very different rankers.
+  - The exact-ID lookup is reliable where Postgres's parser splits "EXP-4.2" unpredictably.
+  - Fixing the rule first stops us choosing whatever looks best afterwards.
+
+### D27: Embedding models compared side by side; production keeps the winner (2026-11-25, Phase 3)
+- **Decision:**
+  - `policy_chunks` has one row per (version, section, chunk, `embedding_model`), so text-embedding-3-small and -large are stored side by side for the comparison.
+  - Every embedding request passes `dimensions=1536`, so -large (natively 3072) fits `vector(1536)` and the single HNSW index.
+  - **Questions are always embedded with the same model as the chunks they are compared against.**
+  - After the evaluation, a second run with `--prune-other-models` leaves only the winner's rows, and `AZURE_OPENAI_EMBED_DEPLOYMENT` is set to the winner.
+- **Alternatives:** Separate eval tables; a `vector(3072)` column for -large (HNSW in pgvector supports at most 2,000 dimensions).
+- **Why:**
+  - One schema serves both the evaluation and production.
+  - Mixing models between questions and chunks gives meaningless similarities.
+  - The shortened -large vectors are an officially supported trade-off.
+
+### D28: A dedicated ingest role, secret, task role and security group (2026-11-25, Phase 3)
+- **Decision:**
+  - The `app_ingest` role can only read the three tables the handbook is built from, and write `policy_documents` and `policy_chunks`. Its DELETE is the only DELETE grant in the schema, and it exists because re-ingest replaces chunks.
+  - Its password is stored in its own Secrets Manager entry, named `akinsds1126-expense-db-ingest`.
+  - The ECS task role can read only that secret and the Azure OpenAI secret, and can write only `policy/*` and `eval/rag/*` in S3.
+  - The task has its own outbound-only security group.
+  - `app_readonly` gets SELECT on the RAG tables for `search_policy`.
+- **Alternatives:** Reuse `app_writer`, or the trainer's role and security group.
+- **Why:** Each job can touch only what it needs. A compromised ingest task can't read claims or employees or change any approval.
+
+### D29: Azure OpenAI endpoint normalised; the resource must accept public calls (2026-11-25, Phase 3)
+- **Decision:** `normalise_endpoint` keeps only `https://<host>/`, even if a full Target URI was stored, and rejects anything that isn't https. The API key comes only from Secrets Manager and is masked in `repr`. The SDK retries 429 and 5xx errors with backoff (`max_retries=5`). The Fargate task reaches Azure over its public IP.
+- **Alternatives:** Trust the stored value as-is; private networking to Azure.
+- **Why:** A full Target URI is an easy copy-paste mistake that produces confusing 404s. Private connectivity between AWS and Azure is out of scope for a two-day build, but the key never leaves Secrets Manager or appears in logs.
+
+### D30: detect-secrets runs via `python -m` (2026-11-25, Phase 3)
+- **Decision:** The pre-commit detect-secrets hook is a `repo: local` hook running `uv run python -m detect_secrets.pre_commit_hook --baseline .secrets.baseline`, with `detect-secrets==1.5.0` pinned in the dev group. This is the same version the remote hook used.
+- **Alternatives:** Keep the remote hook and skip it locally; replace the tool.
+- **Why:** Windows Application Control started blocking the remote hook's `.exe` launcher, the same problem the Phase 0 file checks had. It's the same scanner, the same version and the same baseline, launched through Python. CI on Linux runs it too, together with the full-history gitleaks scan.
+
+### D31: Exact section-ID lookup added to the winning vector search, after Run A (2026-11-25, Phase 3)
+- **Decision:** Production retrieval is the pre-declared winner, **vector search with text-embedding-3-large** (Run A, D26). On top of it sits a deterministic step, method `vector_id`:
+  - If the question contains an `EXP-n` or `EXP-n.m` ID that **exists in the latest handbook**, those sections are returned first.
+  - The remaining places are filled from vector search, without duplicates.
+  - With no ID in the question, the result is exactly vector search.
+- **This was added after seeing Run A's results**, and is marked here as a post-hoc change. Run A's numbers stay in `docs/RAG.md` unchanged, as the pre-declared outcome.
+- **Validation:** a new held-out set of 10 questions, `eval_questions_holdout.json`, committed in `dac8f3e` **before** the shortcut was written or run:
+  - 5 cite IDs in varied phrasings
+  - 5 are plain paraphrases, to show nothing else changes
+  - Before and after results are reported on both the original 30 and the new 10.
+- **Alternatives:** Switch to hybrid (better on IDs, but worse MRR and it misses the deadline question); leave the gap.
+- **Why:** Users and the agent will cite sections by ID ("what does EXP-6.3 say?"). Vector embeddings don't match ID strings reliably. A lookup has no parameters to tune, so it can't overfit. It only acts when a real, current section ID is present.
+
+### D27/D28 amendments after the Phase 3 review (2026-11-25, Phase 3)
+- **Real per-step transactions.**
+  - **What was wrong:** the ingest job used to open a non-autocommit connection. After its first SELECT, psycopg turned every `with conn.transaction()` into a *savepoint* inside one long transaction. That transaction stayed open across all the Azure calls, and a late failure (for example the S3 upload of the eval results) rolled back everything.
+  - **What it does now:** the job connects with `autocommit=True`. Each step commits on its own: registering the documents, each (version, model) chunk replacement, syncing `is_latest`, and the prune. This matches what D27 always claimed.
+- **Prune can't empty the table.** `prune()` refuses an empty model list, and `--models` must name at least one deployment. Otherwise `NOT (embedding_model = ANY('{}'))` would delete every chunk.
+- **No DELETE on documents (009).** Migration 009 revokes `app_ingest`'s DELETE on `policy_documents`. Re-ingest only upserts documents, and a document delete would cascade to all its chunks. DELETE on `policy_chunks` remains, and it is the only DELETE grant in the schema.
+- **The committed task definition is the production command.** `infra/ecs/ingest-task-definition.json` now runs `--models text-embedding-3-large --prune-other-models`. Re-running it keeps production on the winner, instead of restoring the -small rows. The evaluation runs are reproduced with a command override (see docs/RAG.md).
+- **Known follow-up (not fixed):** for a question that cites several IDs, the exact-ID lookup orders rows by `section_id` text and limits them to k. A section-level ID such as `EXP-10` expands to all its subsections and could crowd out a second cited ID. Ordering also follows text, so `EXP-1.10` sorts before `EXP-1.2`. No current question hits this. A fix would keep the order in which IDs are cited and cap the rows per ID.

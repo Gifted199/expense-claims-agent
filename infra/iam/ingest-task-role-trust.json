@@ -1,0 +1,14 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Principal": { "Service": "ecs-tasks.amazonaws.com" },
+      "Action": "sts:AssumeRole",
+      "Condition": {
+        "StringEquals": { "aws:SourceAccount": "666127452756" },
+        "ArnLike": { "aws:SourceArn": "arn:aws:ecs:eu-west-2:666127452756:*" }
+      }
+    }
+  ]
+}

@@ -45,7 +45,12 @@ jobs:
         run: |
           curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" \
             | tar -xz gitleaks
-          ./gitleaks git --redact --verbose .
+          ./gitleaks git --config .gitleaks.toml --redact --verbose .
+
+      # Proves the allowlist is not too broad: a fixed fake key must still be flagged (D23).
+      # Repeated 20 times to show the result is deterministic.
+      - name: Gitleaks config self-test
+        run: uv run python scripts/gitleaks_selftest.py ./gitleaks --repeat 20
 
       - name: Unit tests
         run: uv run pytest

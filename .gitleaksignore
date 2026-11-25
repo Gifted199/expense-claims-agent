@@ -1,6 +1,13 @@
-# Exact-fingerprint ignores for confirmed gitleaks false positives only (decision D23).
-# Each line must name one commit, file, rule and line. Never add wildcard or path-wide ignores.
+# Exact-fingerprint ignores for HISTORIC gitleaks findings only (decision D23).
+# New secret names are covered by the pattern allowlist in .gitleaks.toml; secret values are
+# never ignored. Each line names one commit, file, rule and line. No wildcard or path ignores.
 
 # docs/DECISIONS.md:92 (D16) gives the NAME of the ML database's Secrets Manager entry.
-# A name is not a credential; generic-api-key matched the keyword followed by that name.
+# Superseded: 431e8b4 was squash-merged into 199855c, so this commit is no longer in history.
 431e8b4eff9198345473c5ce8edd0008be964d0d:docs/DECISIONS.md:generic-api-key:92
+# Same D16 line as it landed on main in the Phase 2 squash merge (a name, not a credential).
+199855c98d8719f6afd0d340a65aca8fb70f6aaf:docs/DECISIONS.md:generic-api-key:92
+# docs/DECISIONS.md:195 (D28) gives the NAME of the ingest role's Secrets Manager entry.
+0393eda22a96c95ad8dbcc53d5cad055e1c942ba:docs/DECISIONS.md:generic-api-key:195
+# src/expense_agent/rag/azure.py:16 is the NAME of the Azure OpenAI Secrets Manager entry.
+0393eda22a96c95ad8dbcc53d5cad055e1c942ba:src/expense_agent/rag/azure.py:generic-api-key:16

@@ -1,0 +1,46 @@
+{
+  "family": "akinsds1126-expense-ingest",
+  "requiresCompatibilities": [
+    "FARGATE"
+  ],
+  "networkMode": "awsvpc",
+  "cpu": "512",
+  "memory": "1024",
+  "runtimePlatform": {
+    "cpuArchitecture": "X86_64",
+    "operatingSystemFamily": "LINUX"
+  },
+  "executionRoleArn": "arn:aws:iam::666127452756:role/akinsds1126-expense-ecs-execution-role",
+  "taskRoleArn": "arn:aws:iam::666127452756:role/akinsds1126-expense-ingest-task-role",
+  "containerDefinitions": [
+    {
+      "name": "ingest",
+      "image": "666127452756.dkr.ecr.eu-west-2.amazonaws.com/akinsds1126-expense-ingest:5b15f2e6703a188bcab491bc6b16b6258ee23e88",
+      "essential": true,
+      "command": [
+        "--models",
+        "text-embedding-3-large",
+        "--prune-other-models"
+      ],
+      "environment": [
+        {
+          "name": "AWS_REGION",
+          "value": "eu-west-2"
+        },
+        {
+          "name": "EXPENSE_ARTIFACT_BUCKET",
+          "value": "akinsds1126-expense-artifacts"
+        }
+      ],
+      "readonlyRootFilesystem": false,
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/akinsds1126-expense-ingest",
+          "awslogs-region": "eu-west-2",
+          "awslogs-stream-prefix": "ingest"
+        }
+      }
+    }
+  ]
+}

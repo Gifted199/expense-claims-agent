@@ -92,7 +92,13 @@ def test_labels_only_granted_to_app_ml_and_delete_never_granted() -> None:
     label_grants = [st for st in grants if "claim_labels" in st]
     assert label_grants, "app_ml needs claim_labels for evaluation"
     assert all(st.endswith("TO app_ml") and st.startswith("GRANT SELECT ") for st in label_grants)
-    assert not any(re.search(r"\bDELETE\b", st, re.IGNORECASE) for st in grants)
+    deletes = [st for st in grants if re.search(r"\bDELETE\b", st, re.IGNORECASE)]
+    # The only DELETE anywhere: app_ingest replacing RAG chunks (008, D28).
+    assert deletes == [
+        "GRANT SELECT, INSERT, UPDATE, DELETE ON policy_documents, policy_chunks TO app_ingest"
+    ]
+    revoke = (DEFAULT_SQL_DIR / "009_ingest_no_document_delete.sql").read_text(encoding="utf-8")
+    assert "REVOKE DELETE ON policy_documents FROM app_ingest" in revoke
 
 
 def test_approvals_and_claims_update_tightened_in_005() -> None:
