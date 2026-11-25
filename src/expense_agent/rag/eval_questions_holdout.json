@@ -1,0 +1,12 @@
+[
+  {"id": "h01", "type": "exact", "question": "explain section EXP-9.1", "expected_sections": ["EXP-9.1"]},
+  {"id": "h02", "type": "exact", "question": "what's in exp-4.2", "expected_sections": ["EXP-4.2"]},
+  {"id": "h03", "type": "exact", "question": "Can you summarise EXP-10 for me?", "expected_sections": ["EXP-10"]},
+  {"id": "h04", "type": "exact", "question": "I was told to read Exp-7.2 - what does it require?", "expected_sections": ["EXP-7.2"]},
+  {"id": "h05", "type": "exact", "question": "Does EXP-6.1 let me travel first class?", "expected_sections": ["EXP-6.1"]},
+  {"id": "h06", "type": "paraphrase", "question": "Is there a cap on what I can spend on a hotel in Edinburgh?", "expected_sections": ["EXP-6.3"]},
+  {"id": "h07", "type": "paraphrase", "question": "Who looks at a claim that the system flags as unusual?", "expected_sections": ["EXP-9.4", "EXP-9.2"]},
+  {"id": "h08", "type": "paraphrase", "question": "Can I expense a speeding fine I got driving to a client?", "expected_sections": ["EXP-10.3"]},
+  {"id": "h09", "type": "paraphrase", "question": "Do I need a receipt for a small taxi fare?", "expected_sections": ["EXP-3.1"]},
+  {"id": "h10", "type": "paraphrase", "question": "Can I claim a birthday present I bought for a colleague?", "expected_sections": ["EXP-10.1"]}
+]
