@@ -89,7 +89,7 @@ Add an entry whenever a design decision is made.
 - **Why:** The agent and UI images (Phase 6) don't need about 400 MB of numerical libraries.
 
 ### D16: Dedicated read-only `app_ml` role with its own secret (2026-11-24, Phase 2)
-- **Decision:** Migration 006 creates `app_ml`, which has SELECT on claims, employees, policy_limits, expense_categories and **claim_labels**, read-only transactions by default, and nothing else. Its password lives in a separate secret, `akinsds1126-expense-db-ml`.
+- **Decision:** Migration 006 creates `app_ml`, which has SELECT on claims, employees, policy_limits, expense_categories and **claim_labels**, read-only transactions by default, and nothing else. Its password is stored in the Secrets Manager entry named `akinsds1126-expense-db-ml`.
 - **Alternatives:** Reuse `app_readonly` (which can't see labels) or master.
 - **Why:**
   - Evaluation needs the labels. Only `records.load_labels` reads them, and a test checks that the feature and model code never mention labels, status or approvals.
@@ -135,13 +135,17 @@ Add an entry whenever a design decision is made.
 - **Phase 4 thresholds must sit near the top**, for example 0.95 or more for "high".
 - The existing scores and the shipped model use this definition, so it stays unchanged.
 
-### D23: gitleaks false positives are ignored by exact fingerprint only (2026-11-24, Phase 2)
-- **Decision:** A confirmed false positive goes into `.gitleaksignore` as one exact fingerprint (`commit:file:rule:line`) with a comment explaining why. No path, rule or wildcard ignores.
-  - The first entry is the D16 line in commit `431e8b4`, where the `generic-api-key` rule matched the sentence giving the *name* of the ML database's Secrets Manager entry. A name, not a credential.
+### D23: gitleaks: secret names allowlisted by pattern, values never; fingerprints for history only (2026-11-24, Phase 2; revised 2026-11-25, Phase 3)
+- **Decision:**
+  - `.gitleaks.toml` extends the default rules (`useDefault = true`) with one allowlist: a matched *value* that is exactly a project Secrets Manager entry **name** (`^akinsds1126-expense-[a-z0-9-]+$`, `regexTarget = "secret"`). Names are not credentials.
+  - Secret **values** are never allowlisted. Nothing is allowlisted by path, rule or commit.
+  - `.gitleaksignore` holds exact fingerprints (`commit:file:rule:line`) **only for historic findings** already in git history, each with a comment.
+  - CI proves the config still bites: `scripts/gitleaks_selftest.py` writes a random 40-character `api_key` at runtime and requires gitleaks to flag it, and requires a line naming `akinsds1126-expense-azure-openai` to pass. `tests/test_gitleaks_config.py` checks the allowlist shape and regex.
 - **Alternatives:**
-  - Rewriting history to remove the line. That needs a force-push, which the project's deny rules forbid, and it buys nothing because the value isn't a secret.
-  - Disabling the rule, or ignoring `docs/`, which would hide real leaks.
-- **Why:** A fingerprint silences only that one finding in that one commit, so the full-history scan still catches any real secret anywhere. Every ignore is visible and reviewable in git.
+  - Fingerprints only (the first version of this decision). Fragile: a squash merge creates a new commit, so every merge needed new fingerprints, and every new file naming a secret failed CI again.
+  - Rewriting history (needs a force-push, which is forbidden) or disabling the rule or ignoring `docs/` (hides real leaks).
+- **Why:** It fixes the cause (names look like keys to the generic rule) without weakening detection of real values, and the self-test fails CI if the allowlist ever becomes too broad.
+- **Known limit:** a value that is all lowercase and starts with `akinsds1126-expense-` would also pass. Real Azure keys and generated passwords don't have that shape, and detect-secrets still scans locally.
 
 ### D24: The handbook is generated from the database; two versions kept, only the latest searched (2026-11-25, Phase 3)
 - **Decision:** `rag/handbook.py` renders the Markdown handbook from `policy_limits`, `expense_categories` (receipt thresholds) and the new `policy_city_hotel_caps`.
@@ -192,7 +196,7 @@ Add an entry whenever a design decision is made.
 ### D28: A dedicated ingest role, secret, task role and security group (2026-11-25, Phase 3)
 - **Decision:**
   - The `app_ingest` role can only read the three tables the handbook is built from, and write `policy_documents` and `policy_chunks`. Its DELETE is the only DELETE grant in the schema, and it exists because re-ingest replaces chunks.
-  - Its password lives in its own secret, `akinsds1126-expense-db-ingest`.
+  - Its password is stored in its own Secrets Manager entry, named `akinsds1126-expense-db-ingest`.
   - The ECS task role can read only that secret and the Azure OpenAI secret, and can write only `policy/*` and `eval/rag/*` in S3.
   - The task has its own outbound-only security group.
   - `app_readonly` gets SELECT on the RAG tables for `search_policy`.

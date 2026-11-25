@@ -1,0 +1,13 @@
+# gitleaks configuration (decision D23).
+# Every default rule still runs. The only exception: a matched *value* that is exactly one of
+# this project's Secrets Manager entry NAMES (akinsds1126-expense-...). A name is not a
+# credential. Secret VALUES are never allowlisted, and nothing is allowlisted by path, rule or
+# commit. scripts/gitleaks_selftest.py proves in CI that a real-looking key is still flagged.
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Secrets Manager entry names (not values) of this project"
+regexTarget = "secret"
+regexes = ['''^akinsds1126-expense-[a-z0-9-]+$''']
