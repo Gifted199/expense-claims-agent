@@ -86,10 +86,12 @@ def _grant_statements() -> list[str]:
     return [st for st in statements if st.upper().startswith("GRANT")]
 
 
-def test_labels_table_and_delete_never_granted() -> None:
+def test_labels_only_granted_to_app_ml_and_delete_never_granted() -> None:
     grants = _grant_statements()
     assert grants
-    assert not any("claim_labels" in st for st in grants)
+    label_grants = [st for st in grants if "claim_labels" in st]
+    assert label_grants, "app_ml needs claim_labels for evaluation"
+    assert all(st.endswith("TO app_ml") and st.startswith("GRANT SELECT ") for st in label_grants)
     assert not any(re.search(r"\bDELETE\b", st, re.IGNORECASE) for st in grants)
 
 

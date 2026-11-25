@@ -1,0 +1,6 @@
+# Exact-fingerprint ignores for confirmed gitleaks false positives only (decision D23).
+# Each line must name one commit, file, rule and line. Never add wildcard or path-wide ignores.
+
+# docs/DECISIONS.md:92 (D16) gives the NAME of the ML database's Secrets Manager entry.
+# A name is not a credential; generic-api-key matched the keyword followed by that name.
+431e8b4eff9198345473c5ce8edd0008be964d0d:docs/DECISIONS.md:generic-api-key:92

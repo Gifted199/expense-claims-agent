@@ -67,23 +67,63 @@ def test_missing_secret_without_flag_changes_nothing(wired: dict[str, Any]) -> N
 def test_create_secret_happens_before_alter_role(wired: dict[str, Any]) -> None:
     wired["monkeypatch"].setattr(app_roles, "get_secret_json", _missing)
     assert app_roles.main(["--profile", "x", "--create-secret"]) == 0
-    assert wired["events"] == ["create_secret", "alter:app_readonly", "alter:app_writer"]
-    kwargs = wired["sm"].create_secret.call_args.kwargs
-    assert kwargs["Name"] == "akinsds1126-expense-db-app"
-    assert {"Key": "Project", "Value": "akinsds1126-expense"} in kwargs["Tags"]
+    assert wired["events"] == [
+        "create_secret",
+        "create_secret",
+        "alter:app_readonly",
+        "alter:app_writer",
+        "alter:app_ml",
+    ]
+    created = {c.kwargs["Name"]: c.kwargs for c in wired["sm"].create_secret.call_args_list}
+    assert set(created) == {"akinsds1126-expense-db-app", "akinsds1126-expense-db-ml"}
+    for kwargs in created.values():
+        assert {"Key": "Project", "Value": "akinsds1126-expense"} in kwargs["Tags"]
 
 
-def test_existing_secret_is_reused_not_rotated(wired: dict[str, Any]) -> None:
-    ro_value, rw_value = "keep-ro", "keep-rw"  # fake values for the test
-    existing = {
-        "app_readonly": {"username": "app_readonly", "password": ro_value},
-        "app_writer": {"username": "app_writer", "password": rw_value},
+def test_ml_secret_holds_only_app_ml(wired: dict[str, Any]) -> None:
+    import json
+
+    wired["monkeypatch"].setattr(app_roles, "get_secret_json", _missing)
+    app_roles.main(["--profile", "x", "--create-secret"])
+    created = {c.kwargs["Name"]: c.kwargs for c in wired["sm"].create_secret.call_args_list}
+    ml = json.loads(created["akinsds1126-expense-db-ml"]["SecretString"])
+    app = json.loads(created["akinsds1126-expense-db-app"]["SecretString"])
+    assert "app_ml" in ml and "app_writer" not in ml and "app_readonly" not in ml
+    assert "app_ml" not in app
+
+
+def test_only_missing_secret_is_created(wired: dict[str, Any]) -> None:
+    fake = "keep"  # fake value for the test
+    app = {
+        "app_readonly": {"username": "app_readonly", "password": fake},
+        "app_writer": {"username": "app_writer", "password": fake},
+    }
+
+    def lookup(session: Any, secret_id: str) -> Any:
+        if secret_id.endswith("-ml"):
+            raise SecretNotFoundError(secret_id)
+        return app
+
+    wired["monkeypatch"].setattr(app_roles, "get_secret_json", lookup)
+    assert app_roles.main(["--profile", "x", "--create-secret"]) == 0
+    names = [c.kwargs["Name"] for c in wired["sm"].create_secret.call_args_list]
+    assert names == ["akinsds1126-expense-db-ml"]
+
+
+def test_existing_secrets_are_reused_not_rotated(wired: dict[str, Any]) -> None:
+    ro_value, rw_value, ml_value = "keep-ro", "keep-rw", "keep-ml"  # fake values for the test
+    secrets = {
+        "akinsds1126-expense-db-app": {
+            "app_readonly": {"username": "app_readonly", "password": ro_value},
+            "app_writer": {"username": "app_writer", "password": rw_value},
+        },
+        "akinsds1126-expense-db-ml": {"app_ml": {"username": "app_ml", "password": ml_value}},
     }
     seen: list[str] = []
-    wired["monkeypatch"].setattr(app_roles, "get_secret_json", lambda s, sid: existing)
+    wired["monkeypatch"].setattr(app_roles, "get_secret_json", lambda s, sid: secrets[sid])
     wired["monkeypatch"].setattr(
         app_roles, "alter_role_password", lambda conn, role, pw: seen.append(pw)
     )
     assert app_roles.main(["--profile", "x", "--create-secret"]) == 0
     wired["sm"].create_secret.assert_not_called()
-    assert seen == ["keep-ro", "keep-rw"]
+    assert seen == ["keep-ro", "keep-rw", "keep-ml"]

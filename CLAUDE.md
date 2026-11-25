@@ -38,6 +38,14 @@ uv run python -m expense_agent.db.verify --profile aero      # counts, anomaly r
 - Code uses `expense_agent.db.connection.connect(role)`: `readonly` for query tools, `writer` for the workflow, `master` only for migrations and seeding.
 - `claim_labels` is eval-only. App code, model features and the agent must never read it.
 
+ML trainer image (runs in the cloud as a one-off ECS task; never train on the laptop). See [docs/ML.md](docs/ML.md).
+```bash
+docker build --platform linux/amd64 --build-arg GIT_SHA=$(git rev-parse HEAD)   -t 666127452756.dkr.ecr.eu-west-2.amazonaws.com/akinsds1126-expense-trainer:$(git rev-parse HEAD)   -f docker/trainer.Dockerfile .
+AWS_PROFILE=aero docker push 666127452756.dkr.ecr.eu-west-2.amazonaws.com/akinsds1126-expense-trainer:<sha>
+```
+- **Never** use `aws ecr get-login-password | docker login`. It fails on this laptop, and Docker's `ecr-login` credential helper handles auth (D20).
+- Model features must be point-in-time and must never use status, approvals or claim_labels (D11, D12).
+
 Slash command: `/review-phase <N>` reviews the current diff against Phase N's "Done when" in PLAN.md.
 
 ## Secret scanning

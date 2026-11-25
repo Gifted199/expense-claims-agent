@@ -106,3 +106,35 @@ def test_settings_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("AWS_REGION", "eu-west-1")
     s = c.DbSettings.from_env()
     assert (s.dbname, s.region, s.instance_id) == ("other", "eu-west-1", "akinsds1126-expense-db")
+
+
+def test_secret_for_respects_custom_secret_ids() -> None:
+    s = c.DbSettings(ml_secret_id="custom-ml", app_secret_id="custom-app")
+    assert s.secret_for("ml") == "custom-ml"
+    assert s.secret_for("readonly") == s.secret_for("writer") == "custom-app"
+    assert s.roles_by_secret() == {
+        "custom-app": ("app_readonly", "app_writer"),
+        "custom-ml": ("app_ml",),
+    }
+
+
+FAKE_VALUE = "fake"  # not a real credential
+
+
+def test_app_credentials_read_from_custom_ml_secret() -> None:
+    name = "custom-ml"
+    s = c.DbSettings(ml_secret_id=name)
+    payload = {
+        "host": "h",
+        "port": 5432,
+        "dbname": "expense",
+        "app_ml": {"username": "app_ml", "password": FAKE_VALUE},
+    }
+    session = fake_session({name: payload})
+    assert c.get_app_credentials(session, s, "ml").user == "app_ml"
+    session.client("secretsmanager").get_secret_value.assert_called_once_with(SecretId=name)
+
+
+def test_secret_ids_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EXPENSE_DB_ML_SECRET_ID", "env-ml")
+    assert c.DbSettings.from_env().secret_for("ml") == "env-ml"

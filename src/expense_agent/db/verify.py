@@ -46,6 +46,16 @@ PRIVILEGE_MATRIX: tuple[tuple[str, str, str, bool], ...] = (
     ("app_writer", "claim_labels", "SELECT", False),
     ("app_writer", "policy_limits", "UPDATE", False),
     ("app_writer", "schema_migrations", "SELECT", False),
+    ("app_ml", "claims", "SELECT", True),
+    ("app_ml", "claim_labels", "SELECT", True),  # evaluation only (D16)
+    ("app_ml", "policy_limits", "SELECT", True),
+    ("app_ml", "approvals", "SELECT", False),
+    ("app_ml", "audit_log", "SELECT", False),
+    ("app_ml", "claims", "INSERT", False),
+    ("app_ml", "claims", "UPDATE", False),
+    ("app_ml", "claims", "DELETE", False),
+    ("app_ml", "claim_labels", "UPDATE", False),
+    ("app_ml", "employees", "SELECT", False),  # table-wide revoked in 007; columns below
 )
 
 # (role, table, column, privilege, expected): app_writer may only move claims through the workflow.
@@ -56,6 +66,11 @@ COLUMN_PRIVILEGES: tuple[tuple[str, str, str, str, bool], ...] = (
     ("app_writer", "claims", "amount", "UPDATE", False),
     ("app_writer", "claims", "employee_id", "UPDATE", False),
     ("app_writer", "claims", "incurred_at", "UPDATE", False),
+    # app_ml reads only the employee columns the model needs (007, D22)
+    ("app_ml", "employees", "employee_id", "SELECT", True),
+    ("app_ml", "employees", "grade", "SELECT", True),
+    ("app_ml", "employees", "full_name", "SELECT", False),
+    ("app_ml", "employees", "email", "SELECT", False),
 )
 
 # A claim counts as over limit if it exceeds the per-claim limit, or if the running total of
@@ -170,12 +185,15 @@ def security_checks(conn: Any) -> list[tuple[str, bool]]:
     return results
 
 
-def writer_login_check(profile: str) -> bool:
-    with connect("writer", profile) as conn:
-        user = conn.execute("SELECT current_user").fetchone()[0]
-    passed = user == "app_writer"
-    print(f"  [{'PASS' if passed else 'FAIL'}] app_writer can log in")
-    return passed
+def login_checks(profile: str) -> bool:
+    ok = True
+    for role, expected in (("writer", "app_writer"), ("ml", "app_ml")):
+        with connect(role, profile) as conn:  # type: ignore[arg-type]
+            user = conn.execute("SELECT current_user").fetchone()[0]
+        passed = user == expected
+        ok &= passed
+        print(f"  [{'PASS' if passed else 'FAIL'}] {expected} can log in")
+    return ok
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -187,7 +205,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         readonly_report(conn)
     with connect("master", args.profile) as conn:
         ok = master_report(conn)
-    ok &= writer_login_check(args.profile)
+    ok &= login_checks(args.profile)
     print("\nALL CHECKS PASSED" if ok else "\nSOME CHECKS FAILED")
     return 0 if ok else 1
 
