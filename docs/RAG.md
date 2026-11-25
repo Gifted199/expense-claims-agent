@@ -17,7 +17,8 @@
 | Ingest and evaluation job | One-off ECS Fargate task `akinsds1126-expense-ingest` (image `358a794`). Logs in CloudWatch `/ecs/akinsds1126-expense-ingest` |
 | Run A (pre-declared comparison) | `eval/rag/20261125T151033Z-0393eda/` |
 | Validation of the ID shortcut | `eval/rag/20261125T152933Z-358a794/` |
-| Run B (production) | `--models text-embedding-3-large --prune-other-models`, so only -large chunk rows remain |
+| Run B (production) | Task definition revision 2 with the command override `["--models","text-embedding-3-large","--prune-other-models"]`, so only -large chunk rows remain. That is now the committed default command in `infra/ecs/ingest-task-definition.json` |
+| Reproduce the comparison | Run the task with the override `["--models","text-embedding-3-small,text-embedding-3-large","--evaluate"]`, then re-run the default command to prune back to -large |
 
 ## How it was measured, in plain words
 - **Recall@3 / Recall@5:** for each question, is a correct section somewhere in the top 3 (or 5) passages? The table shows the share of questions where it is.
@@ -60,7 +61,7 @@
 
 **What that hides:** vector missed both questions that cite a section ID (q17 "What does EXP-6.3 say?" and q18 "Show me section EXP-4.2"). Embeddings don't match ID strings reliably. Hybrid found them, but put the deadline question (q01) outside the top 5.
 
-**Latest-only check:** every passage returned was from version 2026.1, and the old "60 days" deadline text was never served.
+**Latest-only check:** every passage returned by every method was from version 2026.1 (`latest_only_ok`). The old "60 days" deadline text was never served. That second check only tests something when a method actually retrieved the deadline section; hybrid didn't for q01, so `latest_only_ok` is the real guarantee.
 
 ### Out-of-scope detection (top vector similarity)
 | Model | In-scope min | In-scope mean | Out-of-scope max | Out-of-scope mean | Separable |
@@ -98,4 +99,5 @@ The shortcut was added **after** seeing Run A, so it is a post-hoc change. To te
 - **Evaluation:** the original questions were written with knowledge of the handbook (see the caveat above), and the sets are small (25 + 10 scored questions). One question is worth 4–10 percentage points, so small differences aren't meaningful.
 - **Generated handbook:** it's well structured and consistently worded, which flatters every method. Real policy documents are messier.
 - **Out-of-scope threshold:** it rests on 5 questions; Phase 5 should confirm it.
+- **Several cited IDs in one question:** the exact-ID lookup can let a section-level ID (for example `EXP-10`, with all its subsections) crowd out a second cited ID. That's a known follow-up (see the D27/D28 amendments in DECISIONS.md).
 - **Wording gaps:** a question whose wording is far from the handbook's (h10) can still be missed. Synonym coverage or query rewriting by the agent (Phase 5) could help, measured on fresh questions.

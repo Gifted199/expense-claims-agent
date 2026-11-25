@@ -221,3 +221,12 @@ Add an entry whenever a design decision is made.
   - Before and after results are reported on both the original 30 and the new 10.
 - **Alternatives:** Switch to hybrid (better on IDs, but worse MRR and it misses the deadline question); leave the gap.
 - **Why:** Users and the agent will cite sections by ID ("what does EXP-6.3 say?"). Vector embeddings don't match ID strings reliably. A lookup has no parameters to tune, so it can't overfit. It only acts when a real, current section ID is present.
+
+### D27/D28 amendments after the Phase 3 review (2026-11-25, Phase 3)
+- **Real per-step transactions.**
+  - **What was wrong:** the ingest job used to open a non-autocommit connection. After its first SELECT, psycopg turned every `with conn.transaction()` into a *savepoint* inside one long transaction. That transaction stayed open across all the Azure calls, and a late failure (for example the S3 upload of the eval results) rolled back everything.
+  - **What it does now:** the job connects with `autocommit=True`. Each step commits on its own: registering the documents, each (version, model) chunk replacement, syncing `is_latest`, and the prune. This matches what D27 always claimed.
+- **Prune can't empty the table.** `prune()` refuses an empty model list, and `--models` must name at least one deployment. Otherwise `NOT (embedding_model = ANY('{}'))` would delete every chunk.
+- **No DELETE on documents (009).** Migration 009 revokes `app_ingest`'s DELETE on `policy_documents`. Re-ingest only upserts documents, and a document delete would cascade to all its chunks. DELETE on `policy_chunks` remains, and it is the only DELETE grant in the schema.
+- **The committed task definition is the production command.** `infra/ecs/ingest-task-definition.json` now runs `--models text-embedding-3-large --prune-other-models`. Re-running it keeps production on the winner, instead of restoring the -small rows. The evaluation runs are reproduced with a command override (see docs/RAG.md).
+- **Known follow-up (not fixed):** for a question that cites several IDs, the exact-ID lookup orders rows by `section_id` text and limits them to k. A section-level ID such as `EXP-10` expands to all its subsections and could crowd out a second cited ID. Ordering also follows text, so `EXP-1.10` sorts before `EXP-1.2`. No current question hits this. A fix would keep the order in which IDs are cited and cap the rows per ID.

@@ -62,6 +62,7 @@ PRIVILEGE_MATRIX: tuple[tuple[str, str, str, bool], ...] = (
     ("app_ingest", "policy_chunks", "INSERT", True),
     ("app_ingest", "policy_chunks", "DELETE", True),
     ("app_ingest", "policy_documents", "UPDATE", True),
+    ("app_ingest", "policy_documents", "DELETE", False),  # revoked in 009
     ("app_ingest", "claims", "SELECT", False),
     ("app_ingest", "employees", "SELECT", False),
     ("app_ingest", "claim_labels", "SELECT", False),

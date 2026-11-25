@@ -62,3 +62,4 @@ def test_policy_matrix_covers_the_rules_we_promised() -> None:
     assert m[("app_writer", "approvals", "UPDATE")] is False
     deletes = {k for k, expected in m.items() if k[2] == "DELETE" and expected}
     assert deletes == {("app_ingest", "policy_chunks", "DELETE")}  # only RAG re-ingest
+    assert m[("app_ingest", "policy_documents", "DELETE")] is False

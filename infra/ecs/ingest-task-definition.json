@@ -19,8 +19,8 @@
       "essential": true,
       "command": [
         "--models",
-        "text-embedding-3-small,text-embedding-3-large",
-        "--evaluate"
+        "text-embedding-3-large",
+        "--prune-other-models"
       ],
       "environment": [
         {

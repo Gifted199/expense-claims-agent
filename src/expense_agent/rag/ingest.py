@@ -163,6 +163,10 @@ def ingest(
 
 
 def prune(conn: Any, keep_models: Sequence[str]) -> int:
+    """Delete chunk rows of every model NOT in keep_models. Refuses an empty list, which would
+    otherwise delete every chunk."""
+    if not keep_models:
+        raise ValueError("refusing to prune with an empty model list (would delete all chunks)")
     with conn.transaction():
         cur = conn.execute(PRUNE_SQL, (list(keep_models),))
     return int(getattr(cur, "rowcount", 0) or 0)
@@ -295,6 +299,8 @@ def main(argv: Sequence[str] | None = None) -> int:  # pragma: no cover - cloud 
     parser.add_argument("--prune-other-models", action="store_true")
     args = parser.parse_args(argv)
     models = [m.strip() for m in args.models.split(",") if m.strip()]
+    if not models:
+        parser.error("--models must name at least one embedding deployment")
 
     bucket = os.environ["EXPENSE_ARTIFACT_BUCKET"]
     rid = run_id(datetime.now(UTC), os.environ.get("GIT_SHA", "unknown"))
@@ -304,7 +310,9 @@ def main(argv: Sequence[str] | None = None) -> int:  # pragma: no cover - cloud 
     embedder = Embedder(load_settings(session))
     s3 = boto3.client("s3")
 
-    with connect("ingest", args.profile) as conn:
+    # autocommit: each `with conn.transaction()` below is a real, separately committed
+    # transaction (not a savepoint inside one long transaction held open across Azure calls).
+    with connect("ingest", args.profile, autocommit=True) as conn:
         docs = render_versions(load_policy_data(conn))
         published = publish_handbooks(s3, bucket, docs)
         register_documents(conn, published)

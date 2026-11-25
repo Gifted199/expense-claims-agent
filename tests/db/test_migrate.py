@@ -97,6 +97,8 @@ def test_labels_only_granted_to_app_ml_and_delete_never_granted() -> None:
     assert deletes == [
         "GRANT SELECT, INSERT, UPDATE, DELETE ON policy_documents, policy_chunks TO app_ingest"
     ]
+    revoke = (DEFAULT_SQL_DIR / "009_ingest_no_document_delete.sql").read_text(encoding="utf-8")
+    assert "REVOKE DELETE ON policy_documents FROM app_ingest" in revoke
 
 
 def test_approvals_and_claims_update_tightened_in_005() -> None:

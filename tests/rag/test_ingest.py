@@ -139,3 +139,12 @@ def test_results_markdown_lists_winner() -> None:
     }
     md = I.results_markdown(res)
     assert "| keyword | 0.500 | 0.600 | 0.400 | q1 |" in md and "**keyword**" in md
+
+
+def test_prune_refuses_empty_model_list() -> None:
+    import pytest
+
+    conn = FakeConn()
+    with pytest.raises(ValueError, match="empty model list"):
+        I.prune(conn, [])
+    assert conn.log == []  # nothing executed
