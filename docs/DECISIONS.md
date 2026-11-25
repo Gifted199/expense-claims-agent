@@ -140,7 +140,7 @@ Add an entry whenever a design decision is made.
   - `.gitleaks.toml` extends the default rules (`useDefault = true`) with one allowlist: a matched *value* that is exactly a project Secrets Manager entry **name** (`^akinsds1126-expense-[a-z0-9-]+$`, `regexTarget = "secret"`). Names are not credentials.
   - Secret **values** are never allowlisted. Nothing is allowlisted by path, rule or commit.
   - `.gitleaksignore` holds exact fingerprints (`commit:file:rule:line`) **only for historic findings** already in git history, each with a comment.
-  - CI proves the config still bites: `scripts/gitleaks_selftest.py` writes a random 40-character `api_key` at runtime and requires gitleaks to flag it, and requires a line naming `akinsds1126-expense-azure-openai` to pass. `tests/test_gitleaks_config.py` checks the allowlist shape and regex.
+  - CI proves the config still bites: `scripts/gitleaks_selftest.py` writes a fixed fake AWS access key ID (assembled from parts at run time, so the literal is never in the repo) and requires gitleaks to flag it, 20 times in a row. A random key was tried first and was flaky: gitleaks' generic rule skips values containing a stopword, which a random string sometimes does, and requires a line naming `akinsds1126-expense-azure-openai` to pass. `tests/test_gitleaks_config.py` checks the allowlist shape and regex.
 - **Alternatives:**
   - Fingerprints only (the first version of this decision). Fragile: a squash merge creates a new commit, so every merge needed new fingerprints, and every new file naming a secret failed CI again.
   - Rewriting history (needs a force-push, which is forbidden) or disabling the rule or ignoring `docs/` (hides real leaks).
