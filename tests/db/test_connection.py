@@ -115,6 +115,7 @@ def test_secret_for_respects_custom_secret_ids() -> None:
     assert s.roles_by_secret() == {
         "custom-app": ("app_readonly", "app_writer"),
         "custom-ml": ("app_ml",),
+        "akinsds1126-expense-db-ingest": ("app_ingest",),
     }
 
 

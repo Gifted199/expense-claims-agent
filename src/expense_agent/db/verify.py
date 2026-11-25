@@ -56,6 +56,23 @@ PRIVILEGE_MATRIX: tuple[tuple[str, str, str, bool], ...] = (
     ("app_ml", "claims", "DELETE", False),
     ("app_ml", "claim_labels", "UPDATE", False),
     ("app_ml", "employees", "SELECT", False),  # table-wide revoked in 007; columns below
+    # RAG (008): only app_ingest writes policy_*; it can't see business data (D28)
+    ("app_ingest", "policy_limits", "SELECT", True),
+    ("app_ingest", "policy_city_hotel_caps", "SELECT", True),
+    ("app_ingest", "policy_chunks", "INSERT", True),
+    ("app_ingest", "policy_chunks", "DELETE", True),
+    ("app_ingest", "policy_documents", "UPDATE", True),
+    ("app_ingest", "claims", "SELECT", False),
+    ("app_ingest", "employees", "SELECT", False),
+    ("app_ingest", "claim_labels", "SELECT", False),
+    ("app_ingest", "policy_limits", "UPDATE", False),
+    ("app_readonly", "policy_chunks", "SELECT", True),
+    ("app_readonly", "policy_city_hotel_caps", "SELECT", True),
+    ("app_readonly", "policy_chunks", "INSERT", False),
+    ("app_readonly", "policy_documents", "DELETE", False),
+    ("app_writer", "policy_city_hotel_caps", "SELECT", True),
+    ("app_writer", "policy_chunks", "INSERT", False),
+    ("app_ml", "policy_chunks", "SELECT", False),
 )
 
 # (role, table, column, privilege, expected): app_writer may only move claims through the workflow.
@@ -175,6 +192,8 @@ def security_checks(conn: Any) -> list[tuple[str, bool]]:
         results.append((f"{role} {verb} {priv} {table}.{column}", actual == expected))
     has_vector = conn.execute("SELECT count(*) FROM pg_extension WHERE extname = 'vector'")
     results.append(("pgvector extension installed", bool(has_vector.fetchone()[0])))
+    latest = conn.execute("SELECT count(*) FROM policy_documents WHERE is_latest").fetchone()[0]
+    results.append((f"at most one latest policy version ({latest})", latest <= 1))
     over_auto = conn.execute(OVER_LIMIT_AUTO_APPROVED).fetchone()[0]
     results.append(
         (
@@ -187,7 +206,7 @@ def security_checks(conn: Any) -> list[tuple[str, bool]]:
 
 def login_checks(profile: str) -> bool:
     ok = True
-    for role, expected in (("writer", "app_writer"), ("ml", "app_ml")):
+    for role, expected in (("writer", "app_writer"), ("ml", "app_ml"), ("ingest", "app_ingest")):
         with connect(role, profile) as conn:  # type: ignore[arg-type]
             user = conn.execute("SELECT current_user").fetchone()[0]
         passed = user == expected

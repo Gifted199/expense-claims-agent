@@ -23,7 +23,7 @@ class FakeConn:
         elif "has_column_privilege" in query:
             expected = {m[:4]: m[4] for m in verify.COLUMN_PRIVILEGES}[params]  # type: ignore[index]
             value = (not expected) if params == self.flip else expected
-        elif "pg_extension" in query:
+        elif "pg_extension" in query or "policy_documents" in query:
             value = 1
         else:
             value = self.over_auto
@@ -60,4 +60,5 @@ def test_policy_matrix_covers_the_rules_we_promised() -> None:
     assert m[("app_writer", "claim_labels", "SELECT")] is False
     assert m[("app_writer", "audit_log", "UPDATE")] is False
     assert m[("app_writer", "approvals", "UPDATE")] is False
-    assert all(not expected for (_, _, priv), expected in m.items() if priv == "DELETE")
+    deletes = {k for k, expected in m.items() if k[2] == "DELETE" and expected}
+    assert deletes == {("app_ingest", "policy_chunks", "DELETE")}  # only RAG re-ingest
