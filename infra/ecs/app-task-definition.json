@@ -1,0 +1,164 @@
+{
+  "family": "akinsds1126-expense-app",
+  "requiresCompatibilities": [
+    "FARGATE"
+  ],
+  "networkMode": "awsvpc",
+  "cpu": "1024",
+  "memory": "3072",
+  "runtimePlatform": {
+    "cpuArchitecture": "X86_64",
+    "operatingSystemFamily": "LINUX"
+  },
+  "executionRoleArn": "arn:aws:iam::666127452756:role/akinsds1126-expense-ecs-execution-role",
+  "taskRoleArn": "arn:aws:iam::666127452756:role/akinsds1126-expense-app-task-role",
+  "containerDefinitions": [
+    {
+      "name": "mcp",
+      "image": "666127452756.dkr.ecr.eu-west-2.amazonaws.com/akinsds1126-expense-mcp:<SHA>",
+      "essential": true,
+      "memoryReservation": 1024,
+      "environment": [
+        {
+          "name": "AWS_REGION",
+          "value": "eu-west-2"
+        },
+        {
+          "name": "EXPENSE_AWS_PROFILE",
+          "value": ""
+        },
+        {
+          "name": "EXPENSE_ARTIFACT_BUCKET",
+          "value": "akinsds1126-expense-artifacts"
+        },
+        {
+          "name": "EXPENSE_RECEIPTS_BUCKET",
+          "value": "akinsds1126-expense-receipts"
+        }
+      ],
+      "healthCheck": {
+        "command": [
+          "CMD",
+          "python",
+          "-m",
+          "expense_agent.healthcheck",
+          "http://127.0.0.1:8080/health"
+        ],
+        "interval": 15,
+        "timeout": 5,
+        "retries": 3,
+        "startPeriod": 30
+      },
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/akinsds1126-expense-app",
+          "awslogs-region": "eu-west-2",
+          "awslogs-stream-prefix": "mcp"
+        }
+      }
+    },
+    {
+      "name": "agent-api",
+      "image": "666127452756.dkr.ecr.eu-west-2.amazonaws.com/akinsds1126-expense-agent:<SHA>",
+      "essential": true,
+      "memoryReservation": 1024,
+      "environment": [
+        {
+          "name": "AWS_REGION",
+          "value": "eu-west-2"
+        },
+        {
+          "name": "EXPENSE_AWS_PROFILE",
+          "value": ""
+        },
+        {
+          "name": "EXPENSE_DEMO_AUTH",
+          "value": "true"
+        },
+        {
+          "name": "EXPENSE_MCP_URL",
+          "value": "http://127.0.0.1:8080/mcp"
+        },
+        {
+          "name": "EXPENSE_RECEIPTS_BUCKET",
+          "value": "akinsds1126-expense-receipts"
+        }
+      ],
+      "dependsOn": [
+        {
+          "containerName": "mcp",
+          "condition": "HEALTHY"
+        }
+      ],
+      "healthCheck": {
+        "command": [
+          "CMD",
+          "python",
+          "-m",
+          "expense_agent.healthcheck",
+          "http://127.0.0.1:8000/health"
+        ],
+        "interval": 15,
+        "timeout": 5,
+        "retries": 3,
+        "startPeriod": 60
+      },
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/akinsds1126-expense-app",
+          "awslogs-region": "eu-west-2",
+          "awslogs-stream-prefix": "agent"
+        }
+      }
+    },
+    {
+      "name": "ui",
+      "image": "666127452756.dkr.ecr.eu-west-2.amazonaws.com/akinsds1126-expense-ui:<SHA>",
+      "essential": true,
+      "memoryReservation": 512,
+      "portMappings": [
+        {
+          "containerPort": 8501,
+          "hostPort": 8501,
+          "protocol": "tcp",
+          "name": "ui-8501"
+        }
+      ],
+      "environment": [
+        {
+          "name": "EXPENSE_API_URL",
+          "value": "http://127.0.0.1:8000"
+        }
+      ],
+      "dependsOn": [
+        {
+          "containerName": "agent-api",
+          "condition": "HEALTHY"
+        }
+      ],
+      "healthCheck": {
+        "command": [
+          "CMD",
+          "python",
+          "-m",
+          "expense_agent.healthcheck",
+          "http://127.0.0.1:8501/_stcore/health"
+        ],
+        "interval": 15,
+        "timeout": 5,
+        "retries": 3,
+        "startPeriod": 30
+      },
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/akinsds1126-expense-app",
+          "awslogs-region": "eu-west-2",
+          "awslogs-stream-prefix": "ui"
+        }
+      }
+    }
+  ]
+}

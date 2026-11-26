@@ -124,3 +124,13 @@ def test_friendly_dates_in_the_ui() -> None:
 
     assert friendly_date("2026-10-26T14:26:00+00:00") == "26 Oct 2026, 14:26"
     assert friendly_date(None) == "—" and friendly_date("not a date") == "not a date"
+
+
+def test_version_label_and_healthcheck() -> None:
+    from expense_agent.healthcheck import healthy, main
+    from expense_agent.ui.helpers import version_label
+
+    assert version_label("release-2026-11") == "Version release"
+    assert version_label("unknown") == version_label("") == "Version dev"
+    assert healthy("http://example.com/") is False  # only this container's own port
+    assert main([]) == 1 and main(["http://127.0.0.1:1/health"]) == 1
