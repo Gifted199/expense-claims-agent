@@ -234,3 +234,67 @@ Add an entry whenever a design decision is made.
 - **No DELETE on documents (009).** Migration 009 revokes `app_ingest`'s DELETE on `policy_documents`. Re-ingest only upserts documents, and a document delete would cascade to all its chunks. DELETE on `policy_chunks` remains, and it is the only DELETE grant in the schema.
 - **The committed task definition is the production command.** `infra/ecs/ingest-task-definition.json` now runs `--models text-embedding-3-large --prune-other-models`. Re-running it keeps production on the winner, instead of restoring the -small rows. The evaluation runs are reproduced with a command override (see docs/RAG.md).
 - **Known follow-up (not fixed):** for a question that cites several IDs, the exact-ID lookup orders rows by `section_id` text and limits them to k. A section-level ID such as `EXP-10` expands to all its subsections and could crowd out a second cited ID. Ordering also follows text, so `EXP-1.10` sorts before `EXP-1.2`. No current question hits this. A fix would keep the order in which IDs are cited and cap the rows per ID.
+
+### D32: Phase 4 is lean: one review, only bug and security fixes (2026-11-25, Phase 4)
+- **Decision:** Following the trainer's guidance for this week (the goal is an agent that calls tools; accuracy is not the agenda), Phase 4 gets one `/review-phase` pass. Only bugs and security issues found there are fixed. Everything else goes in the **Phase 4 future work** list below.
+- **Alternatives:** Several review rounds and polishing (more time than the deadline allows); no review at all (risks shipping a security hole into the agent's tools).
+- **Why:** The tools must be correct and safe, because the agent and the UI build on them. Polish can wait.
+
+### D33: MCP server: FastMCP (mcp SDK 1.x), streamable HTTP, identity from a token-protected header (2026-11-25, Phase 4)
+- **Decision:**
+  - The official `mcp` Python SDK's `FastMCP`, pinned `mcp>=1.20,<2` (in 2.x FastMCP was renamed and its API changed). Streamable HTTP, `stateless_http=True`, JSON responses, port 8080 (127.0.0.1 locally; internal-only in ECS).
+  - Every request needs `Authorization: Bearer <token>` (Secrets Manager entry named `akinsds1126-expense-mcp-internal`, JSON key `MCP_INTERNAL_TOKEN`, compared with `hmac.compare_digest`) and exactly one `X-Employee-Id`. Otherwise an ASGI middleware answers 401 before any MCP code runs. `/health` is open and returns no data.
+  - Tools read the employee from the request headers via FastMCP's hidden `Context`, then load it as `app_readonly` and refuse unknown or inactive employees. **No tool has an identity argument** (a test checks every schema). Manager approve/reject is not a tool.
+  - "Not found" and "someone else's claim" return the same message.
+- **Alternatives:** Identity as a tool argument (the model could choose whose data to see); OAuth between internal services (heavy for two containers in one task); the standalone `fastmcp` package (an extra third-party dependency); mcp 2.x `MCPServer` (new API, less proven).
+- **Why:** The model can't change who it acts for. Only the agent API holds the token and sets the header, and the token never reaches the model.
+
+### D34: submit_claim is a fixed sequence; every check runs; the decision is code (2026-11-25, Phase 4)
+- **Decision:**
+  - Steps, always in this order: validate → per-claim limit (hotels: nightly rate vs city cap) → monthly limit (same definition as `verify.OVER_LIMIT_AUTO_APPROVED`) → duplicate (same merchant and amount within 10 days) → split (same merchant within ±1 day, combined over the per-claim limit) → deadline → anomaly score.
+  - **Every** check runs, so all reasons come back together, each citing its handbook section.
+  - Approved only if every check passed (with a `system` approval row); otherwise `pending_manager`. The status is set at insert, in one transaction with the claim, the approval and an `audit_log` row (check results only, no receipt text).
+  - The transaction first takes `pg_advisory_xact_lock(employee_id)`, so two claims submitted at the same moment can't both slip under the monthly limit.
+  - Anomaly "high" means a score of 0.95 or more. The features come from the same `build_features` as training, over claims submitted before now.
+  - **Deadline (a change from the plan):** a claim older than the 30-day deadline is not refused. It goes to the manager, as the handbook says (EXP-2.3 Late claims). Only claims past the 90-day cutoff are refused as invalid. Both numbers come from `rag.handbook.LATEST`.
+  - A hotel's per-claim check is its nightly rate (amount ÷ nights) against the city cap, or the UK-wide hotel limit (`policy_limits`) for cities without their own cap, as the handbook table says.
+- **Alternatives:** Stop at the first failed check (hides other problems from the manager); let the LLM decide (forbidden); refuse late claims outright (contradicts EXP-2.3).
+- **Why:** The same input always gives the same decision, and a human sees every reason.
+
+### D35: Receipts: S3 key scoping, and no OCR text in logs (2026-11-25, Phase 4)
+- **Decision:** `extract_receipt` and `submit_claim` accept only `samples/receipts/<file>` (shared synthetic demo receipts) or `uploads/<employee_code>/<file>` (the caller's own uploads; Phase 5 `/upload` will write there). Keys with `..`, `//`, a leading `/` or anything else are refused before Textract is called. Logs hold the key, the missing fields and the confidence, never vendor names, amounts or line items (a test captures the logs).
+- **Alternatives:** Any key in the bucket (one employee could read another's receipts through the model).
+- **Why:** The model chooses the key, so the server must enforce whose receipts can be read.
+
+### D36: Hotel city and nights on claims (010); missing ones are asked for, never guessed (2026-11-25, Phase 4)
+- **Decision:** Migration 010 adds nullable `claims.city` and `claims.nights` (1–60). `submit_claim` takes optional `city` and `nights`. For a hotel claim without either, it returns `{"result": "missing_fields", "missing": [...], "message": ...}` and writes nothing, so the agent asks the user. No default city is ever assumed.
+  - "Hotel claims must have both" is enforced in the workflow code, not by a table CHECK. A CHECK (even `NOT VALID`) would also fire when a manager updates the status of an old seeded hotel claim that has no city.
+- **Alternatives:** Keep city and nights only in the audit details (the manager couldn't see them); guess the city from the merchant (wrong caps); drop the city-cap check.
+- **Why:** The city decides the cap, so a guess could approve a claim that should go to a manager.
+
+### D37: Five synthetic receipts under samples/receipts/ (2026-11-25, Phase 4)
+- **Decision:** `python -m expense_agent.ocr.make_receipts --upload` draws 5 receipts with Pillow (lunch, taxi, a 2-night London hotel over the senior cap, office supplies, and a repeat of the lunch for the duplicate demo). All vendors are fictional, each image is stamped "SYNTHETIC RECEIPT - DEMO DATA ONLY", and dates are relative to the day they're generated. They're uploaded with a `manifest.json` of the expected values, which the smoke test checks Textract against.
+- **Why:** Synthetic data only (CLAUDE.md), and the demo receipts exercise the duplicate, city-cap and OCR paths.
+
+### Phase 4 review fixes (2026-11-25, Phase 4)
+The single `/review-phase 4` pass found these. Per D32, only bugs and security issues were fixed:
+- **"Today" was refused before noon.** A date-only `incurred_at` means midday London time, so a claim for today's lunch submitted at 09:00 counted as "in the future". It is now capped at the submission time.
+- **No future tolerance.** A 5-minute allowance let a time slightly after "now" through validation, and the database's `incurred_at <= submitted_at` CHECK then failed with an error instead of a clean `invalid` result. The tolerance is now 0.
+- **Header parsing:** `X-Employee-Id` must be plain ASCII digits. A Latin-1 superscript digit used to cause a 500 instead of a 401.
+- **Auth middleware:** only `lifespan` events skip the token check. Any non-HTTP scope, such as a websocket, is dropped.
+- **`score_claim_anomaly` scoping:** it checks ownership before loading the model or any claim history, and it now has unit tests (someone else's claim gives "not found" and reads nothing).
+- Lint and format fixes in three test files (CI would have failed).
+
+### Phase 4 future work (not done, by D32)
+- Smoke check for "someone else's claim" should also assert `found is False` (the recorded run did show "not found").
+- `get_claim_status` with a number above bigint returns a database error instead of "not found"; `score_claim_anomaly` should refuse NaN or infinite amounts. Both end as tool errors and leak no data.
+- Phase 6: the MCP task role must be **read-only** on `models/anomaly/*`, because the model file is a pickle that the server loads.
+- Database connection pooling (each tool call opens a TLS connection now).
+- Model hot-reload when `latest.json` changes (the model is cached until restart).
+- Incremental feature history (scoring loads all claims each time; fine at this data size).
+- Multi-currency claims with an FX check (everything is GBP now).
+- Textract line items, and using the OCR'd date and total to cross-check the submitted claim.
+- Per-employee rate limiting on the MCP server.
+- MCP task role, image and ECS service (Phase 6), and DNS-rebinding settings for the container host name.
+- The multi-ID RAG crowding follow-up from Phase 3.
+- Anomaly model strictness: with `robust_zscore`, a merchant nobody has claimed at before scores about 0.99, so every new-merchant claim goes to a manager (seen in the smoke test, docs/MCP.md). Safe but strict; a fix belongs to the model (for example cap the new-merchant feature's z-score or calibrate per feature), not to the tools.

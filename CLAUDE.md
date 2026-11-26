@@ -46,6 +46,14 @@ AWS_PROFILE=aero docker push 666127452756.dkr.ecr.eu-west-2.amazonaws.com/akinsd
 - **Never** use `aws ecr get-login-password | docker login`. It fails on this laptop, and Docker's `ecr-login` credential helper handles auth (D20).
 - Model features must be point-in-time and must never use status, approvals or claim_labels (D11, D12).
 
+MCP server (Phase 4). Local runs are clients of the cloud services only. See [docs/MCP.md](docs/MCP.md).
+```bash
+uv run python -m expense_agent.mcp_server --profile aero                     # serve on 127.0.0.1:8080
+uv run python -m expense_agent.mcp_server.smoke --profile aero --employee 5  # list + call every tool
+uv run python -m expense_agent.ocr.make_receipts --profile aero --upload     # synthetic receipts
+```
+- Identity comes only from the `X-Employee-Id` header behind the internal token (D33). Never add an identity argument to a tool.
+
 Slash command: `/review-phase <N>` reviews the current diff against Phase N's "Done when" in PLAN.md.
 
 ## Secret scanning

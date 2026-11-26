@@ -144,3 +144,12 @@ def test_dry_run_applies_nothing(tmp_path: Path) -> None:
     conn = FakeConn({})
     assert [m.version for m in run(conn, tmp_path, dry_run=True)] == [1]
     assert not any(q.startswith("SELECT '") for q in conn.executed)
+
+
+def test_010_adds_nullable_city_and_nights_without_a_cross_column_check() -> None:
+    sql = (DEFAULT_SQL_DIR / "010_claim_city_nights.sql").read_text(encoding="utf-8")
+    body = "\n".join(ln.split("--")[0] for ln in sql.splitlines())
+    assert "ADD COLUMN IF NOT EXISTS city text" in body
+    assert "ADD COLUMN IF NOT EXISTS nights smallint" in body
+    assert "NOT NULL" not in body  # historic claims have neither
+    assert "hotel" not in body  # enforced in the workflow (D36), not by a CHECK
