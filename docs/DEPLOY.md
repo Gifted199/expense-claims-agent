@@ -56,7 +56,7 @@ By your choice, there's no separate demo PR. The proof is the merge of the Phase
 | Merge commit on main | `5b30bb8` (PR #8: deploy job in CI, the UI `httpx` fix, the image import check, the README) |
 | CI run | [45812983493](https://github.com/Gifted199/expense-claims-agent/actions/runs/45812983493). Attempt 1: tests ✅, deploy ❌ (OIDC `sub` mismatch). **Attempt 2: tests ✅, deploy ✅** (11:57–12:05 UTC) |
 | Deploy result | Service `akinsds1126-expense-app-svc` on task definition **`akinsds1126-expense-app:2`**, deployment COMPLETED, 1/1 running. The task and all three containers are **HEALTHY** on images `akinsds1126-expense-{mcp,agent,ui}:5b30bb8c6d1d99a48d563a50e0907091826f07e2` |
-| URL / version shown | **http://18.171.227.210:8501**: `/_stcore/health` returns `ok` from your IP. The UI image was built with `GIT_SHA=5b30bb8…`, so the sidebar shows "Version 5b30bb8" |
-| Live chat turn | CloudWatch `agent/agent-api/03bc2b95…` at 12:16:25 UTC: `agent_turn`, employee 1, tool `search_policy`, no guardrail flags. The bootstrap task's `ModuleNotFoundError: httpx` appears only in the old task's UI stream (`813f41…`), and not in the new one |
+| URL / version shown | **http://18.171.227.210:8501**: `/_stcore/health` returns `ok` from your IP. The sidebar shows **"Version 5b30bb8"**, confirmed in the browser |
+| Live chat turn | CloudWatch `agent/agent-api/03bc2b95…` at 12:16:25 UTC: `agent_turn`, employee 1, tool `search_policy`, no guardrail flags. In the browser, the London hotel caps question was answered with citation **EXP-6.3**. The bootstrap task's `ModuleNotFoundError: httpx` appears only in the old task's UI stream (`813f41…`), and not in the new one |
 
 After this, the temporary step that printed the OIDC claims was removed from the deploy job. The next merge to main deploys again with no manual step.
