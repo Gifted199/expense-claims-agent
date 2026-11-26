@@ -54,3 +54,11 @@ jobs:
 
       - name: Unit tests
         run: uv run pytest
+
+      # Each image installs only its own dependency groups (D52). Import everything each image
+      # runs in a clean env with ONLY those groups, so a missing dependency fails here, not in ECS.
+      - name: Image dependency groups import check
+        run: |
+          uv run --isolated --no-dev --no-default-groups --group ui python scripts/check_image_imports.py ui
+          uv run --isolated --no-dev --no-default-groups --group agent python scripts/check_image_imports.py agent
+          uv run --isolated --no-dev --no-default-groups --group server --group rag --group ml python scripts/check_image_imports.py mcp
