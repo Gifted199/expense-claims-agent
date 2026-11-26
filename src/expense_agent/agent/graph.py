@@ -21,7 +21,12 @@ from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
 from expense_agent.agent.memory import thread_key
 from expense_agent.agent.prompt import build_system_prompt
-from expense_agent.guardrails.middleware import InputGuardrail, OutputGuardrail, current_turn
+from expense_agent.guardrails.middleware import (
+    EmptyClaimsRetry,
+    InputGuardrail,
+    OutputGuardrail,
+    current_turn,
+)
 from expense_agent.guardrails.rules import text_of
 
 log = logging.getLogger(__name__)
@@ -68,13 +73,13 @@ class AgentRunner:
 
         started = time.monotonic()
         key = thread_key(employee_id, thread_id)  # validates the UUID first
-        inp, out = InputGuardrail(), OutputGuardrail()
+        inp, out, claims_retry = InputGuardrail(), OutputGuardrail(), EmptyClaimsRetry()
         tools = await self.load_tools(employee_id)
         agent = create_agent(
             self.model,
             list(tools),
             system_prompt=build_system_prompt(now),
-            middleware=[inp, out],
+            middleware=[inp, out, claims_retry],
             checkpointer=self.checkpointer,
         )
         state = await agent.ainvoke(
@@ -87,7 +92,7 @@ class AgentRunner:
         result = TurnResult(
             reply=text_of(final.content) if final else "",
             tools_used=[m.name or "" for m in turn if isinstance(m, ToolMessage)],
-            flags=[*inp.flags, *out.flags],
+            flags=[*inp.flags, *claims_retry.flags, *out.flags],
         )
         log.info(  # no message text (PII) and no token in logs
             json.dumps(

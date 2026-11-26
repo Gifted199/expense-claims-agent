@@ -12,6 +12,7 @@ Middleware instances are created per request, so their ``flags`` describe exactl
 
 from __future__ import annotations
 
+import json
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -138,3 +139,65 @@ class OutputGuardrail(AgentMiddleware):
     @hook_config(can_jump_to=["model"])
     async def aafter_model(self, state: Any, runtime: Any) -> dict[str, Any] | None:
         return self.after_model(state, runtime)
+
+
+CLAIMS_FILTERS = ("status", "date_from", "date_to")
+UNFILTERED_NOTE = (
+    "No claims matched the filters, so the list was fetched again without filters. Say that no "
+    "claims matched those filters, then answer from these claims (newest submitted first)."
+)
+
+
+class EmptyClaimsRetry(AgentMiddleware):
+    """If a filtered get_my_claims call finds nothing, run it once more without filters.
+
+    Deterministic safety net for a real bug: the model invented a date range for "my latest
+    claim", got no rows and told the user they had no claims. The model then sees both facts:
+    nothing matched the filters, and here are the latest claims.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.flags: list[str] = []
+
+    @staticmethod
+    def _needs_retry(request: Any, result: Any) -> bool:
+        call = request.tool_call
+        if call.get("name") != "get_my_claims" or not isinstance(result, ToolMessage):
+            return False
+        if not any(call.get("args", {}).get(k) for k in CLAIMS_FILTERS):
+            return False
+        data = rules.parse_json(rules.text_of(result.content))
+        return isinstance(data, dict) and data.get("count") == 0
+
+    def _merge(self, request: Any, first: ToolMessage, retry: Any) -> ToolMessage:
+        self.flags.append("claims_retry_unfiltered")
+        data = rules.parse_json(rules.text_of(getattr(retry, "content", ""))) or {}
+        filters = {k: v for k, v in request.tool_call.get("args", {}).items() if v}
+        merged = {"filtered_call": {"filters": filters, "count": 0}, "note": UNFILTERED_NOTE}
+        if isinstance(data, dict):
+            merged.update({k: v for k, v in data.items() if k != "note"})
+        return ToolMessage(
+            content=json.dumps(merged, ensure_ascii=False),
+            tool_call_id=first.tool_call_id,
+            name=first.name,
+        )
+
+    @staticmethod
+    def _unfiltered(request: Any) -> Any:
+        args = {
+            k: v for k, v in request.tool_call.get("args", {}).items() if k not in CLAIMS_FILTERS
+        }
+        return request.override(tool_call={**request.tool_call, "args": args})
+
+    def wrap_tool_call(self, request: Any, handler: Callable[[Any], Any]) -> Any:
+        result = handler(request)
+        if not self._needs_retry(request, result):
+            return result
+        return self._merge(request, result, handler(self._unfiltered(request)))
+
+    async def awrap_tool_call(self, request: Any, handler: Callable[[Any], Awaitable[Any]]) -> Any:
+        result = await handler(request)
+        if not self._needs_retry(request, result):
+            return result
+        return self._merge(request, result, await handler(self._unfiltered(request)))

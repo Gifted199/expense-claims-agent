@@ -117,3 +117,10 @@ def test_messages_stay_in_order_oldest_first_inside_the_box(fake_api: list) -> N
     assert not any("cap-card" in m.value for m in box.markdown)  # welcome gone once chatting
     assert below.type == "chat_input"
     assert [c[2] for c in fake_api] == ["first question", "second question"]
+
+
+def test_friendly_dates_in_the_ui() -> None:
+    from expense_agent.ui.helpers import friendly_date
+
+    assert friendly_date("2026-10-26T14:26:00+00:00") == "26 Oct 2026, 14:26"
+    assert friendly_date(None) == "—" and friendly_date("not a date") == "not a date"

@@ -3,7 +3,11 @@
 from __future__ import annotations
 
 import re
+from datetime import datetime
 from typing import Any
+from zoneinfo import ZoneInfo
+
+LONDON = ZoneInfo("Europe/London")
 
 _MARKDOWN_CHARS = re.compile(r"[\[\]()!<>`*_#|\\]")
 
@@ -23,3 +27,15 @@ def prefill_message(s3_key: str, ocr: dict[str, Any]) -> str:
     found = [f for f in found if f]
     details = (": " + ", ".join(found)) if found else ""
     return f"Please submit a claim from my receipt {s3_key}{details}. Ask me for anything missing."
+
+
+def friendly_date(value: Any) -> str:
+    """ISO timestamp -> "26 Oct 2026, 14:26" in London time ("—" if missing or unreadable)."""
+    if not value:
+        return "—"
+    try:
+        parsed = datetime.fromisoformat(str(value))
+    except ValueError:
+        return str(value)
+    local = parsed.astimezone(LONDON) if parsed.tzinfo else parsed
+    return f"{local.day} {local:%b %Y, %H:%M}"

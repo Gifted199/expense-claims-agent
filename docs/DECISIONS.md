@@ -384,3 +384,14 @@ The single `/review-phase 5` pass found these. Per D32/D38 only bugs and securit
   - a test of the identity-header builders
   - an empty demo directory crashes the UI
   - Starlette buffers the whole upload before the 5 MB check (the API is internal-only)
+
+### D47: "Latest claim" means most recently submitted; no invented date filters; friendly dates (2026-11-26, Phase 5)
+- **Bug (manual testing):** asked "What's the status of my latest claim?", the agent called `get_my_claims` with `date_from=2026-11-01, date_to=2026-11-26`, a range it chose itself. (This was confirmed from the stored conversation, read-only as `app_memory`; the turn log records tool names, not arguments.) It got no rows, because the synthetic data ends in Oct 2026, and said the user had no claims.
+- **Decision:**
+  - `get_my_claims` now sorts by **`submitted_at` DESC** and says so in its result ("claims[0] is the latest claim").
+  - Its description and the system prompt say: no status or date filters unless the user asked for that status or period; "latest" means most recently submitted, and the answer says so; dates are shown as "26 Oct 2026, 14:26" (London time). The tool adds `*_display` fields for that.
+  - A filtered call that finds nothing carries a note, "this does not mean no claims".
+  - **Deterministic safety net:** `EmptyClaimsRetry` middleware re-runs a filtered `get_my_claims` that returned nothing **once, without filters**, and gives the model both facts. This doesn't depend on the model following the prompt (flag `claims_retry_unfiltered`).
+  - The UI's My claims and Manager queue show friendly dates. My claims now has a "Submitted" column, newest first.
+  - The exact conversation is a scripted-model test (`tests/agent/test_latest_claim.py`) and the first case of the Phase 8 set (`src/expense_agent/evaluation/conversations.json`).
+- **Why:** An empty result from a self-chosen filter must never become "you have no claims".

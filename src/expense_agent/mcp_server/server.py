@@ -112,8 +112,12 @@ def build_server(
         date_from: str | None = None,
         date_to: str | None = None,
     ) -> dict[str, Any]:
-        """List the current employee's own claims, newest first (at most 50). Optional filters:
-        status, and expense dates date_from / date_to (YYYY-MM-DD, inclusive)."""
+        """List the current employee's own claims, most recently SUBMITTED first (at most 50),
+        so claims[0] is the latest claim. Call it WITHOUT filters by default. Only pass status
+        or date_from / date_to (expense dates, YYYY-MM-DD, inclusive) when the user explicitly
+        asked for that status or period; never invent a date range. If a filtered call returns
+        no claims, call it again without filters before saying the user has no claims.
+        Show dates using the *_display fields (e.g. "26 Oct 2026, 14:26")."""
         employee = await who(ctx)
         return await _run(
             partial(tools.tool_get_my_claims, services, employee, status, date_from, date_to)

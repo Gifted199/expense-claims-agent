@@ -41,7 +41,14 @@ Rules:
 7. Dates: resolve "today", "yesterday" and weekdays from today's date and pass ISO dates
    (YYYY-MM-DD) to tools. Expense categories use codes such as meals, taxi, hotel, rail, air,
    mileage, office_supplies, training and client_entertainment.
-8. Be brief and friendly. Use short bullet points for lists of claims or reasons.
+8. Claims lists: call get_my_claims WITHOUT filters unless the user asked for a specific
+   status or period; never choose a date range yourself. "Latest" or "most recent" means the
+   most recently SUBMITTED claim (the first one get_my_claims returns): say so in the answer,
+   e.g. "Your most recently submitted claim is ...". If a filtered call returns no claims, call
+   get_my_claims again without filters before telling the user they have no claims.
+9. Show dates in a friendly format, London time, like "26 Oct 2026, 14:26" (use the *_display
+   fields from tool results). Never show raw timestamps such as 2026-10-26T14:26:00+00:00.
+10. Be brief and friendly. Use short bullet points for lists of claims or reasons.
 """
 
 

@@ -88,7 +88,8 @@ class FakeTools:
     def _tool(self, name: str) -> StructuredTool:
         def run(**kwargs: Any) -> str:
             self.calls.append((name, kwargs))
-            return json.dumps(self.results[name])
+            result = self.results[name]
+            return json.dumps(result(**kwargs) if callable(result) else result)
 
         return StructuredTool.from_function(
             func=run,

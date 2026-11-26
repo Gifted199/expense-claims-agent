@@ -14,7 +14,7 @@ from typing import Any
 import streamlit as st
 
 from expense_agent.ui.client import ApiClient, ApiError
-from expense_agent.ui.helpers import plain, prefill_message
+from expense_agent.ui.helpers import friendly_date, plain, prefill_message
 
 CAPABILITIES: tuple[tuple[str, str, str], ...] = (
     ("📘", "Ask about policy", "Answers from the latest expense handbook, with section citations."),
@@ -192,7 +192,8 @@ def claims_tab(client: ApiClient) -> None:
         [
             {
                 "Ref": c["claim_ref"],
-                "Date": (c.get("incurred_at") or "")[:10],
+                "Spent": friendly_date(c.get("incurred_at")),
+                "Submitted": friendly_date(c.get("submitted_at")),
                 "Category": c["category"],
                 "Merchant": c["merchant"],
                 "Amount (£)": c["amount"],
@@ -203,7 +204,7 @@ def claims_tab(client: ApiClient) -> None:
         hide_index=True,
         width="stretch",
     )
-    st.caption(f"Showing your latest {len(rows)} claims.")
+    st.caption(f"Your {len(rows)} most recently submitted claims, newest first.")
 
 
 def queue_tab(client: ApiClient) -> None:
@@ -228,7 +229,8 @@ def queue_tab(client: ApiClient) -> None:
             score = "—" if score is None else score
             hotel = f"Hotel: {c['city']}, {c['nights']} night(s)\n" if c.get("city") else ""
             st.text(
-                f"Spent: {(c.get('incurred_at') or '')[:10]}\n"
+                f"Spent: {friendly_date(c.get('incurred_at'))}\n"
+                f"Submitted: {friendly_date(c.get('submitted_at'))}\n"
                 f"Description: {c.get('description') or '—'}\n"
                 f"{hotel}Anomaly score: {score}"
             )
