@@ -88,3 +88,32 @@ def test_receipt_prefill_mentions_only_what_ocr_found() -> None:
     msg = prefill_message("uploads/E0006/x.png", {"vendor": "CityCab", "date": None, "total": None})
     assert "None" not in msg and "£" not in msg and "vendor CityCab" in msg
     assert plain("![x](http://evil/img.png) Cafe") == "xhttp://evil/img.png Cafe"
+
+
+def _assistant_parts(at: AppTest) -> tuple[Any, Any]:
+    children = list(at.tabs[0].children.values())
+    return children[0], children[1]
+
+
+def test_assistant_tab_is_a_chat_layout_with_the_input_below_the_messages(fake_api: list) -> None:
+    at = AppTest.from_file(str(APP), default_timeout=30).run()
+    box, below = _assistant_parts(at)
+    assert below.type == "chat_input"  # the input comes after (below) the message area
+    proto = box.proto
+    assert proto.height_config.pixel_height == 520 and proto.autoscroll
+    assert sum("cap-card" in m.value for m in box.markdown) == 5  # welcome inside the box
+    assert box.button(key="ex0") is not None
+
+
+def test_messages_stay_in_order_oldest_first_inside_the_box(fake_api: list) -> None:
+    at = AppTest.from_file(str(APP), default_timeout=30).run()
+    at.chat_input[0].set_value("first question").run()
+    at.chat_input[0].set_value("second question").run()
+    box, below = _assistant_parts(at)
+    roles = [m.name for m in box.chat_message]
+    assert roles == ["user", "assistant", "user", "assistant"]
+    assert box.chat_message[0].markdown[0].value == "first question"
+    assert box.chat_message[2].markdown[0].value == "second question"
+    assert not any("cap-card" in m.value for m in box.markdown)  # welcome gone once chatting
+    assert below.type == "chat_input"
+    assert [c[2] for c in fake_api] == ["first question", "second question"]

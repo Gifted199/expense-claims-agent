@@ -34,6 +34,7 @@ EXAMPLES: tuple[str, ...] = (
     "What's the status of my latest claim?",
     "Can I claim alcohol at a client dinner?",
 )
+CHAT_HEIGHT = 520  # px: fits a laptop screen with the input below
 STATUSES = ("all", "approved", "pending_manager", "submitted", "rejected")
 
 CSS = """
@@ -135,33 +136,45 @@ def welcome() -> None:
             st.session_state.pending = example
 
 
-def send(client: ApiClient, message: str) -> None:
-    st.session_state.messages.append({"role": "user", "content": message})
+def ask(client: ApiClient, message: str) -> dict[str, Any]:
+    """One chat turn through the agent API, as an assistant message for the history."""
     try:
-        with st.spinner("Thinking..."):
-            out = client.chat(st.session_state.thread_id, message)
-        st.session_state.messages.append(
-            {"role": "assistant", "content": out["reply"], "tools": out.get("tools_used", [])}
-        )
+        out = client.chat(st.session_state.thread_id, message)
+        return {"role": "assistant", "content": out["reply"], "tools": out.get("tools_used", [])}
     except ApiError as exc:
-        st.session_state.messages.append({"role": "assistant", "content": f"⚠️ {exc}", "tools": []})
+        return {"role": "assistant", "content": f"⚠️ {exc}", "tools": []}
+
+
+def render_message(m: dict[str, Any]) -> None:
+    with st.chat_message(m["role"]):
+        st.markdown(m["content"])
+        if m.get("tools"):
+            st.caption("Used: " + ", ".join(dict.fromkeys(m["tools"])))
 
 
 def assistant_tab(client: ApiClient) -> None:
-    typed = st.chat_input("Ask about policy, your spending, or submit a claim...")
+    """A normal chat layout: a fixed-height, auto-scrolling message area (oldest at the top,
+    newest at the bottom), with the chat input always below it. An empty conversation shows the
+    welcome cards and examples inside the message area."""
+    box = st.container(height=CHAT_HEIGHT, border=True, autoscroll=True, key="chat_box")
+    typed = st.chat_input("Ask about policy, your spending, or submit a claim...", key="chat_input")
     message = typed or st.session_state.pending
     st.session_state.pending = None
-    if message:
-        send(client, message)
-    if not st.session_state.messages:
-        welcome()
-        if st.session_state.pending:
-            st.rerun()
-    for m in st.session_state.messages:
-        with st.chat_message(m["role"]):
-            st.markdown(m["content"])
-            if m.get("tools"):
-                st.caption("Used: " + ", ".join(dict.fromkeys(m["tools"])))
+    with box:
+        for m in st.session_state.messages:
+            render_message(m)
+        if message:
+            user = {"role": "user", "content": message}
+            st.session_state.messages.append(user)
+            render_message(user)
+            with st.chat_message("assistant"), st.spinner("Thinking..."):
+                reply = ask(client, message)
+            st.session_state.messages.append(reply)
+            st.rerun()  # redraw the history in order, with the new reply at the bottom
+        elif not st.session_state.messages:
+            welcome()
+            if st.session_state.pending:
+                st.rerun()
 
 
 def claims_tab(client: ApiClient) -> None:
