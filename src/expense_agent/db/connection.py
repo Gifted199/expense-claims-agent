@@ -19,14 +19,15 @@ if TYPE_CHECKING:  # pragma: no cover
     import boto3
     import psycopg
 
-Role = Literal["master", "readonly", "writer", "ml", "ingest"]
-AppRole = Literal["readonly", "writer", "ml", "ingest"]
+Role = Literal["master", "readonly", "writer", "ml", "ingest", "memory"]
+AppRole = Literal["readonly", "writer", "ml", "ingest", "memory"]
 
 APP_ROLE_NAMES: dict[AppRole, str] = {
     "readonly": "app_readonly",
     "writer": "app_writer",
     "ml": "app_ml",
     "ingest": "app_ingest",
+    "memory": "app_memory",
 }
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -48,6 +49,7 @@ class DbSettings:
     app_secret_id: str = "akinsds1126-expense-db-app"  # noqa: S105 - secret *name*, not a value
     ml_secret_id: str = "akinsds1126-expense-db-ml"  # noqa: S105 - secret *name*, not a value
     ingest_secret_id: str = "akinsds1126-expense-db-ingest"  # noqa: S105 - a *name*
+    memory_secret_id: str = "akinsds1126-expense-db-memory"  # noqa: S105 - a *name*
     ca_bundle: Path = DEFAULT_CA_BUNDLE
     connect_timeout: int = 10
 
@@ -57,6 +59,8 @@ class DbSettings:
             return self.ml_secret_id
         if role == "ingest":
             return self.ingest_secret_id
+        if role == "memory":
+            return self.memory_secret_id
         return self.app_secret_id
 
     def roles_by_secret(self) -> dict[str, tuple[str, ...]]:
@@ -64,6 +68,7 @@ class DbSettings:
             self.app_secret_id: (APP_ROLE_NAMES["readonly"], APP_ROLE_NAMES["writer"]),
             self.ml_secret_id: (APP_ROLE_NAMES["ml"],),
             self.ingest_secret_id: (APP_ROLE_NAMES["ingest"],),
+            self.memory_secret_id: (APP_ROLE_NAMES["memory"],),
         }
 
     @classmethod
@@ -76,6 +81,7 @@ class DbSettings:
             app_secret_id=os.environ.get("EXPENSE_DB_APP_SECRET_ID", d.app_secret_id),
             ml_secret_id=os.environ.get("EXPENSE_DB_ML_SECRET_ID", d.ml_secret_id),
             ingest_secret_id=os.environ.get("EXPENSE_DB_INGEST_SECRET_ID", d.ingest_secret_id),
+            memory_secret_id=os.environ.get("EXPENSE_DB_MEMORY_SECRET_ID", d.memory_secret_id),
             ca_bundle=Path(os.environ.get("EXPENSE_DB_CA_BUNDLE", str(d.ca_bundle))),
         )
 

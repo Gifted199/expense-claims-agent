@@ -167,3 +167,15 @@ def test_a_time_even_a_minute_ahead_is_refused_not_a_db_error(lunch: dict) -> No
     out = run(conn, {**lunch, "incurred_at": ahead})
     assert out["result"] == "invalid" and "incurred_at" in out["errors"]
     assert conn.inserts() == []
+
+
+def test_review_reasons_are_written_at_insert_only(lunch: dict) -> None:
+    held = FakeWriterConn(duplicates=1)
+    run(held, lunch)
+    params = dict(held.executed)[wf.INSERT_CLAIM_SQL]
+    assert params[-1] and "EXP-11.1" in params[-1][0]
+    ok = FakeWriterConn()
+    run(ok, lunch)
+    assert dict(ok.executed)[wf.INSERT_CLAIM_SQL][-1] is None
+    for conn in (held, ok):
+        assert not any(s.lstrip().upper().startswith("UPDATE") for s in conn.statements())

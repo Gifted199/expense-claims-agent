@@ -153,3 +153,28 @@ def test_010_adds_nullable_city_and_nights_without_a_cross_column_check() -> Non
     assert "ADD COLUMN IF NOT EXISTS nights smallint" in body
     assert "NOT NULL" not in body  # historic claims have neither
     assert "hotel" not in body  # enforced in the workflow (D36), not by a CHECK
+
+
+def test_011_memory_role_gets_only_its_own_schema() -> None:
+    sql = (DEFAULT_SQL_DIR / "011_agent_memory.sql").read_text(encoding="utf-8")
+    grants = [st for st in _grant_statements() if "app_memory" in st]
+    assert grants, "app_memory needs its schema grant"
+    for st in grants:
+        assert st.startswith("GRANT USAGE, CREATE ON SCHEMA agent_memory") or st.startswith(
+            "GRANT CONNECT"
+        ), st
+    assert "SET search_path = agent_memory" in sql
+
+
+def test_review_reasons_is_never_updatable_by_any_grant() -> None:
+    from expense_agent.db import verify
+
+    for st in _grant_statements():
+        if re.search(r"\bUPDATE\b", st):
+            assert "review_reasons" not in st, st
+    sql012 = (DEFAULT_SQL_DIR / "012_claim_review_reasons.sql").read_text(encoding="utf-8")
+    body = "\n".join(ln.split("--")[0] for ln in sql012.splitlines())
+    assert "GRANT" not in body.upper()
+    row = ("app_writer", "claims", "review_reasons", "UPDATE", False)
+    assert row in verify.COLUMN_PRIVILEGES
+    assert "review_reasons" in verify.DENIED_WRITER_UPDATE_SQL

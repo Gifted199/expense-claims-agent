@@ -54,6 +54,14 @@ uv run python -m expense_agent.ocr.make_receipts --profile aero --upload     # s
 ```
 - Identity comes only from the `X-Employee-Id` header behind the internal token (D33). Never add an identity argument to a tool.
 
+Agent API and UI (Phase 5). See [docs/AGENT.md](docs/AGENT.md). Docker holds 8000/8501 on this laptop, so locally use 8001/8502.
+```bash
+uv run python -m expense_agent.api --profile aero --demo-auth --port 8001
+EXPENSE_API_URL=http://127.0.0.1:8001 uv run python -m streamlit run src/expense_agent/ui/app.py --server.port 8502
+uv run python -m expense_agent.agent.smoke --profile aero --api http://127.0.0.1:8001   # writes claims
+```
+- Guardrails are deterministic middleware (D41). Manager approve/reject is HTTP only, never an agent tool (D42).
+
 Slash command: `/review-phase <N>` reviews the current diff against Phase N's "Done when" in PLAN.md.
 
 ## Secret scanning

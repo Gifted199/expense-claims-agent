@@ -63,3 +63,36 @@ def test_policy_matrix_covers_the_rules_we_promised() -> None:
     deletes = {k for k, expected in m.items() if k[2] == "DELETE" and expected}
     assert deletes == {("app_ingest", "policy_chunks", "DELETE")}  # only RAG re-ingest
     assert m[("app_ingest", "policy_documents", "DELETE")] is False
+
+
+class _Denied(Exception):
+    pass
+
+
+def test_is_denied_detects_insufficient_privilege_and_always_rolls_back() -> None:
+    import contextlib
+
+    import psycopg
+
+    class Conn:
+        def __init__(self, error: type[Exception] | None) -> None:
+            self.error = error
+            self.rolled_back = False
+
+        @contextlib.contextmanager
+        def transaction(self):  # type: ignore[no-untyped-def]
+            try:
+                yield
+            except BaseException:
+                self.rolled_back = True
+                raise
+
+        def execute(self, sql: str) -> None:
+            if self.error:
+                raise self.error("permission denied for table claims")
+
+    denied = Conn(psycopg.errors.InsufficientPrivilege)
+    assert verify.is_denied(denied, verify.DENIED_WRITER_UPDATE_SQL) is True
+    allowed = Conn(None)
+    assert verify.is_denied(allowed, verify.DENIED_WRITER_UPDATE_SQL) is False
+    assert allowed.rolled_back  # even a successful UPDATE is rolled back

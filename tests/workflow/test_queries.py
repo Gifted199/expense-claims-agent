@@ -128,3 +128,40 @@ def test_spending_summary_rejects_unknown_options() -> None:
 def test_every_query_is_scoped_by_employee() -> None:
     for sql in (q.MY_CLAIMS_SQL, q.CLAIM_STATUS_SQL, *q.SUMMARY_SQL.values()):
         assert "employee_id = %" in sql
+
+
+def test_latest_means_most_recently_submitted() -> None:
+    assert "ORDER BY submitted_at DESC, claim_id DESC" in q.MY_CLAIMS_SQL
+
+
+def test_claims_carry_friendly_dates_and_an_empty_filter_note() -> None:
+    from datetime import UTC
+
+    when = datetime(2026, 10, 26, 14, 26, tzinfo=UTC)
+    row = (
+        1,
+        "CLM-2026-000001",
+        "meals",
+        Decimal("9"),
+        "GBP",
+        when,
+        when,
+        "Cafe",
+        "approved",
+        None,
+        None,
+    )
+    out = q.get_my_claims(FakeReadConn([row]), 7)
+    first = out["claims"][0]
+    assert first["submitted_display"] == "26 Oct 2026, 14:26"
+    assert "filters" not in out and "note" not in out
+    empty = q.get_my_claims(FakeReadConn([]), 7, date_from="2026-11-01")
+    assert empty["filters"] == {"date_from": "2026-11-01"}
+    assert "without filters" in empty["note"]
+
+
+def test_friendly_uses_london_time() -> None:
+    from datetime import UTC
+
+    assert q.friendly(datetime(2026, 7, 1, 9, 5, tzinfo=UTC)) == "1 Jul 2026, 10:05"  # BST
+    assert q.friendly(None) is None

@@ -1,0 +1,24 @@
+{
+  "description": "Labelled conversations for the Phase 8 evaluation (tool choice, answer quality, guardrails, workflow, memory). Synthetic employees only. Started in Phase 5 with regression cases found in manual testing.",
+  "cases": [
+    {
+      "id": "c001-latest-claim-no-invented-dates",
+      "category": "tool_choice",
+      "source": "manual test 2026-11-26: the agent invented date_from 2026-11-01..2026-11-26, got no rows (data ends Oct 2026) and said the user had no claims",
+      "employee_id": 1,
+      "turns": [
+        {
+          "user": "What's the status of my latest claim?",
+          "expect": {
+            "tools_any": ["get_my_claims"],
+            "get_my_claims_args_without": ["date_from", "date_to"],
+            "reply_contains_any": ["most recently submitted"],
+            "reply_not_contains": ["no claims", "couldn't find any", "T14:", "+00:00"],
+            "reply_mentions_latest_claim_ref": true,
+            "friendly_date_format": "D Mon YYYY, HH:MM"
+          }
+        }
+      ]
+    }
+  ]
+}

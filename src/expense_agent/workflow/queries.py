@@ -41,7 +41,7 @@ WHERE employee_id = %(employee_id)s
   AND (%(status)s::text IS NULL OR status = %(status)s::text)
   AND (%(from)s::date IS NULL OR (incurred_at AT TIME ZONE 'Europe/London')::date >= %(from)s::date)
   AND (%(to)s::date IS NULL OR (incurred_at AT TIME ZONE 'Europe/London')::date <= %(to)s::date)
-ORDER BY incurred_at DESC, claim_id DESC
+ORDER BY submitted_at DESC, claim_id DESC
 LIMIT %(limit)s
 """
 
@@ -96,6 +96,14 @@ def _iso(value: Any) -> str | None:
     return value.isoformat() if value is not None else None
 
 
+def friendly(value: datetime | None) -> str | None:
+    """A date-time as people read it, in London time: "26 Oct 2026, 14:26"."""
+    if value is None:
+        return None
+    local = value.astimezone(LONDON) if value.tzinfo else value
+    return f"{local.day} {local:%b %Y, %H:%M}"
+
+
 def parse_day(value: str | None, name: str) -> date | None:
     if value in (None, ""):
         return None
@@ -131,6 +139,8 @@ def get_my_claims(
             "currency": r[4],
             "incurred_at": _iso(r[5]),
             "submitted_at": _iso(r[6]),
+            "incurred_display": friendly(r[5]),
+            "submitted_display": friendly(r[6]),
             "merchant": r[7],
             "status": r[8],
             "city": r[9],
@@ -138,7 +148,23 @@ def get_my_claims(
         }
         for r in rows
     ]
-    return {"claims": claims, "count": len(claims), "limited_to": MAX_CLAIMS}
+    out: dict[str, Any] = {
+        "claims": claims,
+        "count": len(claims),
+        "limited_to": MAX_CLAIMS,
+        "order": "most recently submitted first: claims[0] is the latest claim",
+    }
+    filters = {
+        k: v for k, v in (("status", status), ("date_from", date_from), ("date_to", date_to)) if v
+    }
+    if filters:
+        out["filters"] = filters
+        if not claims:
+            out["note"] = (
+                "No claims match these filters. That does not mean the employee has no claims: "
+                "call get_my_claims again without filters before saying so."
+            )
+    return out
 
 
 def parse_claim_identifier(value: str | int) -> tuple[int | None, str | None]:
@@ -163,6 +189,7 @@ def get_claim_status(conn: Any, employee_id: int, claim: str | int) -> dict[str,
             "decision": r[11],
             "reason": r[12],
             "decided_at": _iso(r[13]),
+            "decided_display": friendly(r[13]),
         }
     return {
         "found": True,
@@ -173,6 +200,8 @@ def get_claim_status(conn: Any, employee_id: int, claim: str | int) -> dict[str,
         "currency": r[4],
         "incurred_at": _iso(r[5]),
         "submitted_at": _iso(r[6]),
+        "incurred_display": friendly(r[5]),
+        "submitted_display": friendly(r[6]),
         "merchant": r[7],
         "status": r[8],
         "anomaly_score": None if r[9] is None else round(float(r[9]), 3),
