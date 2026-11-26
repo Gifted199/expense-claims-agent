@@ -65,8 +65,8 @@ jobs:
           uv run --isolated --no-dev --no-default-groups --group server --group rag --group ml python scripts/check_image_imports.py mcp
 
   # Push-to-main deploy (D51, amended): runs only for a push to main, only after the tests pass.
-  # It runs as a push event, so the OIDC subject is exactly
-  # repo:Gifted199/expense-claims-agent:ref:refs/heads/main (what the deploy role trusts).
+  # The deploy role trusts exactly sub = repo:Gifted199@238518570/expense-claims-agent@1470049029:
+  # ref:refs/heads/main (GitHub's ID-based subject; D51 amendment 2).
   # AWS access is by GitHub OIDC (role akinsds1126-expense-github-deploy): no AWS keys in GitHub.
   deploy:
     needs: lint-and-test
@@ -89,19 +89,6 @@ jobs:
       SHA: ${{ github.sha }}
     steps:
       - uses: actions/checkout@v4
-
-      # Diagnostics only: print the OIDC token's non-secret claims (never the token itself), so a
-      # trust-policy mismatch is visible in the log. The role trusts exactly
-      # sub = repo:Gifted199/expense-claims-agent:ref:refs/heads/main and aud = sts.amazonaws.com.
-      - name: Show OIDC claims (sub, aud, ref, event)
-        run: |
-          curl -sS -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
-            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=sts.amazonaws.com" | python3 -c '
-          import base64, json, sys
-          payload = json.load(sys.stdin)["value"].split(".")[1]
-          claims = json.loads(base64.urlsafe_b64decode(payload + "=" * (-len(payload) % 4)))
-          print({k: claims.get(k) for k in ("sub", "aud", "ref", "event_name")})
-          ' || true
 
       - name: AWS credentials (OIDC, no stored keys)
         uses: aws-actions/configure-aws-credentials@v4
