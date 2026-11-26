@@ -58,3 +58,8 @@ def test_mixed_message_is_allowed_with_the_investment_note() -> None:
 def test_harmless_buying_advice_in_answers_is_kept() -> None:
     text = "Consider buying an off-peak rail ticket to keep the cost down (EXP-6.1)."
     assert rules.strip_investment_advice(text) == (text, False)
+
+
+def test_put_bonus_into_fund_is_investment_only() -> None:
+    assert rules.check_input("Should I put my bonus into an index fund?").action == "refuse"
+    assert rules.check_input("Should I claim the hotel or the train?").action == "allow"

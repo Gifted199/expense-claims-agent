@@ -19,3 +19,24 @@ def test_latest_claim_regression_is_in_the_set() -> None:
     turn = case["turns"][0]
     assert turn["user"] == "What's the status of my latest claim?"
     assert turn["expect"]["get_my_claims_args_without"] == ["date_from", "date_to"]
+
+
+def test_scorer_families() -> None:
+    from expense_agent.evaluation.run import score_turn, summarise, turn_passed
+
+    expect = {"tools_any": ["search_policy"], "cites_any": ["EXP-6.3"], "refused": False}
+    good = {"reply": "Cap £230.00 (EXP-6.3).", "tools_used": ["search_policy"], "flags": []}
+    assert turn_passed(score_turn(expect, good))
+    fallback = {**good, "flags": ["missing_citation", "fallback"]}
+    assert score_turn(expect, fallback)["answer"]["no_invented_money"] is False
+    refusal = {"reply": "No.", "tools_used": [], "flags": ["investment_only"]}
+    assert score_turn({"tools_none": True, "refused": True}, refusal) == {
+        "tool_choice": {"tools_none": True},
+        "guardrail": {"refused": True},
+    }
+    curly = {"reply": "I can\u2019t check that.", "tools_used": [], "flags": []}
+    assert turn_passed(score_turn({"reply_contains_any": ["can't check"]}, curly))
+    results = [
+        {"id": "x", "memory": True, "turns": [{"scores": {}}, {"scores": score_turn(expect, good)}]}
+    ]
+    assert summarise(results)["memory"] == {"passed": 1, "total": 1}

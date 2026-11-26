@@ -52,6 +52,12 @@ INVESTMENT_INPUT = (
     ),
     re.compile(rf"\b(buy(ing)?|sell(ing)?|trad(e|ing))\b.{{0,30}}\b{_PRODUCTS}\b", re.IGNORECASE),
     re.compile(r"\binvest(ing|ment)?\b.{0,40}\b(my|our|bonus|salary|savings|money)\b", re.I),
+    # "Should I put my bonus into an index fund?" (missed in the Phase 8 evaluation, c012)
+    re.compile(
+        rf"\bput(ting)?\s+(my\s+|our\s+)?(bonus|savings|money|salary|cash)\b.{{0,30}}\b{_PRODUCTS}",
+        re.IGNORECASE,
+    ),
+    re.compile(rf"\bshould\s+(i|we)\b.{{0,40}}\b{_PRODUCTS}\b", re.IGNORECASE),
     re.compile(rf"\b(which|what|best|good|recommend)\b.{{0,40}}\b{_PRODUCTS}\b", re.IGNORECASE),
     re.compile(rf"\b{_PRODUCTS}\b.{{0,40}}\b(to\s+buy|should\s+i|worth\s+buying|recommend)", re.I),
 )
