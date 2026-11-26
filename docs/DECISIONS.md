@@ -395,3 +395,52 @@ The single `/review-phase 5` pass found these. Per D32/D38 only bugs and securit
   - The UI's My claims and Manager queue show friendly dates. My claims now has a "Submitted" column, newest first.
   - The exact conversation is a scripted-model test (`tests/agent/test_latest_claim.py`) and the first case of the Phase 8 set (`src/expense_agent/evaluation/conversations.json`).
 - **Why:** An empty result from a self-chosen filter must never become "you have no claims".
+
+### D48: One ECS task, three containers, started in order of health (2026-11-26, Phase 6)
+- **Decision:**
+  - Service `akinsds1126-expense-app-svc` runs one Fargate task (1 vCPU / 3 GB) with three containers: `mcp`, `agent-api` and `ui`.
+  - `agent-api` waits for `mcp` to be HEALTHY, and `ui` waits for `agent-api`.
+  - **The MCP server (8080) and the agent API (8000) bind to 127.0.0.1**, so only containers in the same task can reach them, even if a security group were misconfigured.
+  - Only the UI's 8501 is mapped and allowed by the security group.
+  - Every container is essential.
+  - Logs go to `/ecs/akinsds1126-expense-app` with the prefixes `mcp/`, `agent/` and `ui/`.
+- **Why:** These are the simplest internal-only ports: in awsvpc mode the containers share localhost, with no service discovery or load balancer needed.
+
+### D49: One task role shared by mcp and agent-api (2026-11-26, Phase 6)
+- **Decision:** One role, `akinsds1126-expense-app-task-role`, holds the union of what the two backend containers need, scoped per resource ARN:
+  - the `db-app`, `db-memory`, `azure-openai` and `mcp-internal` secrets (not `ml`, not `ingest`)
+  - GetObject on the demo and upload receipts and on `models/anomaly/*` (**read-only on the pickled model**)
+  - PutObject on `uploads/*`
+  - `textract:AnalyzeExpense`, which has no resource-level permissions
+- **Trade-off:** In ECS, the task role is available to **every** container in the task, including the UI, through the task credentials endpoint. The agent container can also read what only MCP uses, and the other way round. The UI code never uses AWS, holds no secrets and only knows the API URL, and the UI image has no RDS certificate. Separate services with separate roles (plus Service Connect or an internal load balancer) would isolate them, at the cost of more moving parts. That's future work.
+
+### D50: No load balancer: a public IP, and the UI open to your IP only (2026-11-26, Phase 6)
+- **Decision:**
+  - The task gets a public IP in the default-VPC public subnets (no NAT).
+  - Security group `akinsds1126-expense-app-sg` allows inbound 8501 **only from your IP** (82.6.101.132/32), because the demo user switcher lets anyone pick any employee (D42).
+  - Outbound is 443 (Azure OpenAI and AWS APIs) and 5432 to the RDS SG only.
+  - **The public IP changes on every deploy.** The deploy workflow prints the new URL.
+- **Future work:** an ALB with a stable DNS name, HTTPS, and Cognito instead of the switcher.
+
+### D51: Push-to-main deploy with GitHub OIDC, only after CI passes (2026-11-26, Phase 6)
+- **Decision:**
+  - **Trigger:** `deploy.yml` runs on `workflow_run` of `CI`, only when CI succeeded for a **push** to **main**.
+  - **Access:** it assumes `akinsds1126-expense-github-deploy` through the existing OIDC provider. The trust is pinned exactly to `repo:Gifted199/expense-claims-agent:ref:refs/heads/main`. **No AWS keys are stored in GitHub.**
+  - **The role can only:**
+    - push to the three app ECR repos
+    - register task definitions
+    - update and describe this one service
+    - pass exactly the execution role and the app task role, and only to ECS tasks
+    - read the new task's public IP, to print the URL
+  - **What it does:** builds the three images tagged with the commit SHA (an existing tag is skipped, since tags are immutable and re-runs must be safe), renders the task definition, deploys, and waits for stability.
+  - **On failure:** the service's deployment circuit breaker rolls back a failed deploy.
+- **Why:** main must always be the tested code that's running, and the deploy needs no long-lived credentials.
+
+### D52: Images: one per container, minimal groups, non-root, health checks, a visible version (2026-11-26, Phase 6)
+- **Decision:**
+  - All images are `python:3.12-slim-bookworm` with uv, `--no-dev --no-default-groups`, and only the groups each needs: mcp = server, rag, ml; agent = agent; ui = ui.
+  - They run as non-root uid 10001.
+  - Health checks use `python -m expense_agent.healthcheck`, which only probes `http://127.0.0.1:<port>`, since the images have no curl. The same command is used by Docker and by ECS.
+  - The UI sidebar shows "Version `<short sha>`" from the `GIT_SHA` build argument, so a deploy is visible.
+- **Bootstrap (once, by hand):** I built and pushed the images from the laptop with the credential helper (D20). You registered the task definition and created the service in the console. After that, every merge to main deploys on its own.
+- **Proof (your choice):** the Phase 6 PR merge itself is the proof. `deploy.yml` runs after CI, and the UI shows "Version `<main sha>`". There's no extra demo PR. This is recorded in docs/DEPLOY.md.
