@@ -9,7 +9,8 @@ permissions:
 
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  # Never cancel a run on main midway: it may be deploying.
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
   lint-and-test:
@@ -54,3 +55,118 @@ jobs:
 
       - name: Unit tests
         run: uv run pytest
+
+      # Each image installs only its own dependency groups (D52). Import everything each image
+      # runs in a clean env with ONLY those groups, so a missing dependency fails here, not in ECS.
+      - name: Image dependency groups import check
+        run: |
+          uv run --isolated --no-dev --no-default-groups --group ui python scripts/check_image_imports.py ui
+          uv run --isolated --no-dev --no-default-groups --group agent python scripts/check_image_imports.py agent
+          uv run --isolated --no-dev --no-default-groups --group server --group rag --group ml python scripts/check_image_imports.py mcp
+
+  # Push-to-main deploy (D51, amended): runs only for a push to main, only after the tests pass.
+  # It runs as a push event, so the OIDC subject is exactly
+  # repo:Gifted199/expense-claims-agent:ref:refs/heads/main (what the deploy role trusts).
+  # AWS access is by GitHub OIDC (role akinsds1126-expense-github-deploy): no AWS keys in GitHub.
+  deploy:
+    needs: lint-and-test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      id-token: write
+    concurrency:
+      group: deploy-main
+      cancel-in-progress: false
+    env:
+      AWS_REGION: eu-west-2
+      ROLE_ARN: arn:aws:iam::666127452756:role/akinsds1126-expense-github-deploy
+      REGISTRY: 666127452756.dkr.ecr.eu-west-2.amazonaws.com
+      CLUSTER: akinsds1126-expense-cluster
+      SERVICE: akinsds1126-expense-app-svc
+      TASK_DEF: infra/ecs/app-task-definition.json
+      SHA: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # Diagnostics only: print the OIDC token's non-secret claims (never the token itself), so a
+      # trust-policy mismatch is visible in the log. The role trusts exactly
+      # sub = repo:Gifted199/expense-claims-agent:ref:refs/heads/main and aud = sts.amazonaws.com.
+      - name: Show OIDC claims (sub, aud, ref, event)
+        run: |
+          curl -sS -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=sts.amazonaws.com" | python3 -c '
+          import base64, json, sys
+          payload = json.load(sys.stdin)["value"].split(".")[1]
+          claims = json.loads(base64.urlsafe_b64decode(payload + "=" * (-len(payload) % 4)))
+          print({k: claims.get(k) for k in ("sub", "aud", "ref", "event_name")})
+          ' || true
+
+      - name: AWS credentials (OIDC, no stored keys)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Log in to ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push images (skips tags that already exist; tags are immutable)
+        run: |
+          set -euo pipefail
+          for name in mcp agent ui; do
+            repo="akinsds1126-expense-${name}"
+            image="${REGISTRY}/${repo}:${SHA}"
+            if aws ecr describe-images --repository-name "$repo" --image-ids imageTag="$SHA" >/dev/null 2>&1; then
+              echo "$image already exists, skipping build"
+              continue
+            fi
+            docker build --platform linux/amd64 --build-arg GIT_SHA="$SHA" \
+              -t "$image" -f "docker/${name}.Dockerfile" .
+            docker push "$image"
+          done
+
+      - name: Render task definition (mcp)
+        id: td-mcp
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition: ${{ env.TASK_DEF }}
+          container-name: mcp
+          image: ${{ env.REGISTRY }}/akinsds1126-expense-mcp:${{ env.SHA }}
+
+      - name: Render task definition (agent-api)
+        id: td-agent
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition: ${{ steps.td-mcp.outputs.task-definition }}
+          container-name: agent-api
+          image: ${{ env.REGISTRY }}/akinsds1126-expense-agent:${{ env.SHA }}
+
+      - name: Render task definition (ui)
+        id: td-ui
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition: ${{ steps.td-agent.outputs.task-definition }}
+          container-name: ui
+          image: ${{ env.REGISTRY }}/akinsds1126-expense-ui:${{ env.SHA }}
+
+      - name: Deploy and wait for the service to be stable
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v2
+        with:
+          task-definition: ${{ steps.td-ui.outputs.task-definition }}
+          cluster: ${{ env.CLUSTER }}
+          service: ${{ env.SERVICE }}
+          wait-for-service-stability: true
+          wait-for-minutes: 20
+
+      - name: Print the URL (no load balancer, so the public IP changes on each deploy)
+        run: |
+          set -euo pipefail
+          task=$(aws ecs list-tasks --cluster "$CLUSTER" --service-name "$SERVICE" \
+            --desired-status RUNNING --query 'taskArns[0]' --output text)
+          eni=$(aws ecs describe-tasks --cluster "$CLUSTER" --tasks "$task" \
+            --query "tasks[0].attachments[0].details[?name=='networkInterfaceId'].value" --output text)
+          ip=$(aws ec2 describe-network-interfaces --network-interface-ids "$eni" \
+            --query 'NetworkInterfaces[0].Association.PublicIp' --output text)
+          echo "Deployed ${SHA::7}: http://${ip}:8501" | tee -a "$GITHUB_STEP_SUMMARY"

@@ -320,6 +320,7 @@ server = [
     { name = "mcp" },
 ]
 ui = [
+    { name = "httpx" },
     { name = "streamlit" },
 ]
 
@@ -350,7 +351,10 @@ dev = [
 ml = [{ name = "scikit-learn", specifier = ">=1.5" }]
 rag = [{ name = "openai", specifier = ">=1.50" }]
 server = [{ name = "mcp", specifier = ">=1.20,<2" }]
-ui = [{ name = "streamlit", specifier = ">=1.50,<2" }]
+ui = [
+    { name = "httpx", specifier = ">=0.27" },
+    { name = "streamlit", specifier = ">=1.50,<2" },
+]
 
 [[package]]
 name = "fastapi"

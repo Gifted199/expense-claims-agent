@@ -435,6 +435,13 @@ The single `/review-phase 5` pass found these. Per D32/D38 only bugs and securit
   - **What it does:** builds the three images tagged with the commit SHA (an existing tag is skipped, since tags are immutable and re-runs must be safe), renders the task definition, deploys, and waits for stability.
   - **On failure:** the service's deployment circuit breaker rolls back a failed deploy.
 - **Why:** main must always be the tested code that's running, and the deploy needs no long-lived credentials.
+- **Amendment (2026-11-26, after Deploy #1 failed):**
+  - **What failed:** the first deploy after PR #7 failed at `configure-aws-credentials` with "Not authorized to perform sts:AssumeRoleWithWebIdentity".
+  - **Checked read-only:** the role ARN, the `aud` condition (`sts.amazonaws.com`) and the OIDC provider's audience were all correct. The only condition left is `sub`.
+  - **Cause:** a job started by a `workflow_run` event (CI completing) doesn't get the token subject that the role trusts exactly, `repo:Gifted199/expense-claims-agent:ref:refs/heads/main`.
+  - **Fix:** the deploy is now a `deploy` job inside `ci.yml`. It has `needs: lint-and-test` and `if: push && ref == refs/heads/main`, so it still runs only after the tests pass, and as a push to main its subject is exactly the trusted one. `deploy.yml` was removed. A run on main is no longer cancelled by a newer push, so a deploy is never cut off midway.
+  - **For future mismatches:** the job prints the token's non-secret claims (`sub`, `aud`, `ref`, `event_name`, never the token) before assuming the role.
+  - **The trust policy is unchanged:** it was not widened.
 
 ### D52: Images: one per container, minimal groups, non-root, health checks, a visible version (2026-11-26, Phase 6)
 - **Decision:**

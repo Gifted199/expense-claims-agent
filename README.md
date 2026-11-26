@@ -26,7 +26,7 @@ Design: [docs/SPEC.md](docs/SPEC.md) · Plan: [docs/PLAN.md](docs/PLAN.md) · **
      claims, policy chunks, memory     Secrets Manager (all credentials) Azure OpenAI (LLM + embeddings)
 
 One-off ECS tasks:  trainer (anomaly model → S3)   ingest (handbook → embeddings → pgvector + RAG eval)
-CI/CD: GitHub Actions CI (lint, tests, gitleaks) ──▶ deploy.yml via OIDC ──▶ ECR ──▶ ECS (on push to main)
+CI/CD: GitHub Actions CI (lint, tests, gitleaks) ──▶ deploy job via OIDC ──▶ ECR ──▶ ECS (on push to main)
 ```
 
 ## How each requirement is met
@@ -40,7 +40,7 @@ CI/CD: GitHub Actions CI (lint, tests, gitleaks) ──▶ deploy.yml via OIDC �
 | **Short-term memory** | LangGraph `AsyncPostgresSaver` in its own schema and role; conversations bound to the employee; survives restarts | D40 |
 | **Pre-commit hooks** | ruff, ruff-format, detect-secrets, file checks (gitleaks in CI) | `.pre-commit-config.yaml` |
 | **Unit tests on every push** | GitHub Actions: pre-commit, gitleaks (full history plus a config self-test), about 400 pytest tests, with no cloud calls (AWS and Azure mocked; scripted fake LLM) | `.github/workflows/ci.yml` |
-| **Push to main deploys** | `deploy.yml` runs after CI passes on main. It signs in through **GitHub OIDC** (no stored keys), builds three images tagged with the commit SHA, renders the task definition, updates the service and waits for stability | [docs/DEPLOY.md](docs/DEPLOY.md), D51 |
+| **Push to main deploys** | The `deploy` job in `ci.yml` runs after the tests pass, on pushes to main only. It signs in through **GitHub OIDC** (no stored keys), builds three images tagged with the commit SHA, renders the task definition, updates the service and waits for stability | [docs/DEPLOY.md](docs/DEPLOY.md), D51 |
 | **Evaluation** | 21 labelled conversations; tool choice, answer checks, guardrails, memory; no LLM judge | [docs/EVALUATION.md](docs/EVALUATION.md) |
 | **Cloud only** | ECS Fargate, RDS, S3, Textract, Secrets Manager, ECR, CloudWatch, Azure OpenAI. Nothing runs locally except clients | — |
 | **OCR** | Amazon Textract AnalyzeExpense on receipts in S3, then a prefilled claim in the chat | `src/expense_agent/ocr` |
@@ -70,7 +70,7 @@ uv run python -m expense_agent.api --profile aero --demo-auth --port 8001
 EXPENSE_API_URL=http://127.0.0.1:8001 uv run python -m streamlit run src/expense_agent/ui/app.py --server.port 8502
 uv run python -m expense_agent.evaluation.run --api http://127.0.0.1:8001
 ```
-**Deploy:** merge a pull request to `main`. CI runs, then `deploy.yml` builds, pushes and deploys, and prints the new URL (`http://<public-ip>:8501`). The one-time bootstrap and console steps are in [docs/DEPLOY.md](docs/DEPLOY.md). The data setup (migrations, roles, seed, model training, RAG ingest) is in [docs/DATA.md](docs/DATA.md), [docs/ML.md](docs/ML.md) and [docs/RAG.md](docs/RAG.md).
+**Deploy:** merge a pull request to `main`. CI runs the tests, then its `deploy` job builds, pushes and deploys, and prints the new URL (`http://<public-ip>:8501`). The one-time bootstrap and console steps are in [docs/DEPLOY.md](docs/DEPLOY.md). The data setup (migrations, roles, seed, model training, RAG ingest) is in [docs/DATA.md](docs/DATA.md), [docs/ML.md](docs/ML.md) and [docs/RAG.md](docs/RAG.md).
 
 ## Limitations and future work
 - **Single synthetic dataset and one LLM deployment.** The evaluation set is small and was written by the developer (see the caveats).
