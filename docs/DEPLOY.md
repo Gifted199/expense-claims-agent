@@ -32,8 +32,8 @@ Decisions: D48–D52 in [DECISIONS.md](DECISIONS.md).
    - the CloudWatch streams for all three containers exist
 
 ## Continuous deployment
-`.github/workflows/deploy.yml`:
-1. Runs on `workflow_run` of **CI**, only if CI **succeeded for a push to `main`**.
+The `deploy` job in `.github/workflows/ci.yml` (it was a separate `deploy.yml` until the first deploy failed; see the D51 amendment):
+1. Runs only for a **push to `main`**, and only after the test job (`needs: lint-and-test`) has passed. A push to main is never cancelled midway.
 2. Assumes `akinsds1126-expense-github-deploy` through GitHub OIDC. The trust is pinned to `repo:Gifted199/expense-claims-agent:ref:refs/heads/main`, and no AWS keys are stored in GitHub.
 3. Builds and pushes the three images tagged with the commit SHA, skipping any tag that already exists.
 4. Renders the task definition, deploys it, and waits for the service to be stable. The circuit breaker rolls back a failed deploy.
@@ -42,7 +42,7 @@ Decisions: D48–D52 in [DECISIONS.md](DECISIONS.md).
 ## Proof: the Phase 6 merge deploys itself
 By your choice, there's no separate demo PR. The proof is the merge of the Phase 6 PR:
 1. CI runs on `main`.
-2. `deploy.yml` starts by itself, with no manual step.
+2. The `deploy` job starts by itself, with no manual step.
 3. The service becomes stable.
 4. The UI at the printed URL shows "Version `<main sha>`".
 
