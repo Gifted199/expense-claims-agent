@@ -10,7 +10,7 @@
       "Condition": {
         "StringEquals": {
           "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
-          "token.actions.githubusercontent.com:sub": "repo:Gifted199/expense-claims-agent:ref:refs/heads/main"
+          "token.actions.githubusercontent.com:sub": "repo:Gifted199@238518570/expense-claims-agent@1470049029:ref:refs/heads/main"
         }
       }
     }

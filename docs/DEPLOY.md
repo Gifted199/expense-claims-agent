@@ -46,11 +46,17 @@ By your choice, there's no separate demo PR. The proof is the merge of the Phase
 3. The service becomes stable.
 4. The UI at the printed URL shows "Version `<main sha>`".
 
-The run link and the observed version are added here after the merge.
+**What actually happened (2026-11-26):**
+1. **PR #7 merged** (`77383d8`). The separate `deploy.yml` failed at the OIDC step.
+2. **PR #8 merged** (`5b30bb8`). The deploy, now a job in CI, failed at the same step. The real cause was GitHub's ID-based `sub` claim (D51 amendment 2).
+3. **You updated the trust policy** to `repo:Gifted199@238518570/expense-claims-agent@1470049029:ref:refs/heads/main` and re-ran the failed job. It succeeded with **no other manual step**: images built and pushed, the task definition registered, the service updated and stable.
 
 | Item | Value |
 |---|---|
-| Merge commit on main | _to be filled after merge_ |
-| CI run | _to be filled_ |
-| Deploy run | _to be filled_ |
-| URL / version shown | _to be filled_ |
+| Merge commit on main | `5b30bb8` (PR #8: deploy job in CI, the UI `httpx` fix, the image import check, the README) |
+| CI run | [45812983493](https://github.com/Gifted199/expense-claims-agent/actions/runs/45812983493). Attempt 1: tests ✅, deploy ❌ (OIDC `sub` mismatch). **Attempt 2: tests ✅, deploy ✅** (11:57–12:05 UTC) |
+| Deploy result | Service `akinsds1126-expense-app-svc` on task definition **`akinsds1126-expense-app:2`**, deployment COMPLETED, 1/1 running. The task and all three containers are **HEALTHY** on images `akinsds1126-expense-{mcp,agent,ui}:5b30bb8c6d1d99a48d563a50e0907091826f07e2` |
+| URL / version shown | **http://18.171.227.210:8501**: `/_stcore/health` returns `ok` from your IP. The sidebar shows **"Version 5b30bb8"**, confirmed in the browser |
+| Live chat turn | CloudWatch `agent/agent-api/03bc2b95…` at 12:16:25 UTC: `agent_turn`, employee 1, tool `search_policy`, no guardrail flags. In the browser, the London hotel caps question was answered with citation **EXP-6.3**. The bootstrap task's `ModuleNotFoundError: httpx` appears only in the old task's UI stream (`813f41…`), and not in the new one |
+
+After this, the temporary step that printed the OIDC claims was removed from the deploy job. The next merge to main deploys again with no manual step.

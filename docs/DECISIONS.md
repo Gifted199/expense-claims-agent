@@ -442,6 +442,12 @@ The single `/review-phase 5` pass found these. Per D32/D38 only bugs and securit
   - **Fix:** the deploy is now a `deploy` job inside `ci.yml`. It has `needs: lint-and-test` and `if: push && ref == refs/heads/main`, so it still runs only after the tests pass, and as a push to main its subject is exactly the trusted one. `deploy.yml` was removed. A run on main is no longer cancelled by a newer push, so a deploy is never cut off midway.
   - **For future mismatches:** the job prints the token's non-secret claims (`sub`, `aud`, `ref`, `event_name`, never the token) before assuming the role.
   - **The trust policy is unchanged:** it was not widened.
+- **Amendment 2 (2026-11-26): the real root cause, which corrects amendment 1.**
+  - **What happened:** the push-triggered deploy job on main (`5b30bb8`, PR #8) failed with the same error. So `workflow_run` was **not** the cause. Amendment 1's diagnosis was wrong, and moving the job alone didn't fix it. The move is kept, because it's simpler and still deploys only after the tests pass.
+  - **The real cause:** this repository's GitHub OIDC `sub` claim contains the **immutable owner and repository IDs**: `repo:Gifted199@238518570/expense-claims-agent@1470049029:ref:refs/heads/main`. The trust policy expected the plain-name form `repo:Gifted199/expense-claims-agent:ref:refs/heads/main`, so the exact `StringEquals` never matched.
+  - **Fix:** the trust policy's `sub` is now exactly the ID-based value. You set it in the console, and `infra/iam/github-deploy-role-trust.json` matches it. It still uses `StringEquals`, with no wildcards, pinned to this one repository and `main`. `aud` is unchanged (`sts.amazonaws.com`).
+  - **Security reason the IDs are better:** names can be reused, IDs can't. If the account or repository were renamed or deleted, someone could create a new `Gifted199/expense-claims-agent` with the same *name*. A name-only `sub` would then trust their workflows to deploy into this AWS account. The numeric owner ID (238518570) and repository ID (1470049029) belong only to the original account and repository, so a recreated repo with the same name gets different IDs and is refused.
+  - **The temporary claims step** (which printed `sub`, `aud`, `ref`, `event_name`) is removed after the first successful deploy (see docs/DEPLOY.md).
 
 ### D52: Images: one per container, minimal groups, non-root, health checks, a visible version (2026-11-26, Phase 6)
 - **Decision:**
