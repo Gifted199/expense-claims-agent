@@ -67,7 +67,9 @@ def build_server(
     @mcp.tool()
     async def search_policy(question: str, ctx: Context) -> dict[str, Any]:
         """Search the latest expense policy handbook. Returns passages with section IDs to cite
-        (e.g. EXP-6.3). If not_covered is true, say the handbook doesn't cover it."""
+        (e.g. EXP-6.3). If not_covered is true, say the handbook doesn't cover it. Only for
+        expense-policy rules: not for the user's own claims, claim references or statuses
+        (use get_my_claims / get_claim_status), nor for how to use this assistant."""
         await who(ctx)
         return await _run(partial(tools.tool_search_policy, services, question))
 

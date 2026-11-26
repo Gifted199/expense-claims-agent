@@ -14,7 +14,7 @@ from typing import Any
 import streamlit as st
 
 from expense_agent.ui.client import ApiClient, ApiError
-from expense_agent.ui.helpers import friendly_date, plain, prefill_message
+from expense_agent.ui.helpers import friendly_date, plain, prefill_message, version_label
 
 CAPABILITIES: tuple[tuple[str, str, str], ...] = (
     ("📘", "Ask about policy", "Answers from the latest expense handbook, with section citations."),
@@ -80,6 +80,7 @@ def sidebar(people: list[dict[str, Any]]) -> ApiClient:
         format_func=lambda i: person_label(by_id[i]),
     )
     st.sidebar.caption("Demo login over synthetic employees. Production uses Amazon Cognito.")
+    st.sidebar.caption(version_label())
     if chosen != st.session_state.employee_id:
         st.session_state.employee_id = chosen
         reset_conversation()

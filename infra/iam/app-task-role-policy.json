@@ -1,0 +1,38 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ReadAppSecrets",
+      "Effect": "Allow",
+      "Action": "secretsmanager:GetSecretValue",
+      "Resource": [
+        "arn:aws:secretsmanager:eu-west-2:666127452756:secret:akinsds1126-expense-db-app-*",
+        "arn:aws:secretsmanager:eu-west-2:666127452756:secret:akinsds1126-expense-db-memory-*",
+        "arn:aws:secretsmanager:eu-west-2:666127452756:secret:akinsds1126-expense-azure-openai-*",
+        "arn:aws:secretsmanager:eu-west-2:666127452756:secret:akinsds1126-expense-mcp-internal-*"
+      ]
+    },
+    {
+      "Sid": "ReadReceiptsAndModel",
+      "Effect": "Allow",
+      "Action": "s3:GetObject",
+      "Resource": [
+        "arn:aws:s3:::akinsds1126-expense-receipts/samples/receipts/*",
+        "arn:aws:s3:::akinsds1126-expense-receipts/uploads/*",
+        "arn:aws:s3:::akinsds1126-expense-artifacts/models/anomaly/*"
+      ]
+    },
+    {
+      "Sid": "UploadReceipts",
+      "Effect": "Allow",
+      "Action": "s3:PutObject",
+      "Resource": "arn:aws:s3:::akinsds1126-expense-receipts/uploads/*"
+    },
+    {
+      "Sid": "ReceiptOcr",
+      "Effect": "Allow",
+      "Action": "textract:AnalyzeExpense",
+      "Resource": "*"
+    }
+  ]
+}

@@ -39,3 +39,11 @@ def friendly_date(value: Any) -> str:
         return str(value)
     local = parsed.astimezone(LONDON) if parsed.tzinfo else parsed
     return f"{local.day} {local:%b %Y, %H:%M}"
+
+
+def version_label(git_sha: str | None = None) -> str:
+    """ "Version abc1234" from the image's GIT_SHA build argument (D52); "dev" locally."""
+    import os
+
+    sha = (git_sha if git_sha is not None else os.environ.get("GIT_SHA", "")).strip()
+    return f"Version {sha[:7]}" if sha and sha != "unknown" else "Version dev"

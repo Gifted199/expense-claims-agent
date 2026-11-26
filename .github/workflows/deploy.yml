@@ -1,0 +1,110 @@
+name: Deploy
+
+# Push-to-main deploy (decision D51). Runs only after the CI workflow has succeeded for a push
+# to main: build the three images tagged with the commit SHA, push them to ECR, render the task
+# definition, deploy it to the ECS service and wait until the service is stable.
+# AWS access is by GitHub OIDC (role akinsds1126-expense-github-deploy): no AWS keys in GitHub.
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: deploy-main
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: eu-west-2
+  ROLE_ARN: arn:aws:iam::666127452756:role/akinsds1126-expense-github-deploy
+  REGISTRY: 666127452756.dkr.ecr.eu-west-2.amazonaws.com
+  CLUSTER: akinsds1126-expense-cluster
+  SERVICE: akinsds1126-expense-app-svc
+  TASK_DEF: infra/ecs/app-task-definition.json
+
+jobs:
+  deploy:
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      SHA: ${{ github.event.workflow_run.head_sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      - name: AWS credentials (OIDC, no stored keys)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Log in to ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push images (skips tags that already exist; tags are immutable)
+        run: |
+          set -euo pipefail
+          for name in mcp agent ui; do
+            repo="akinsds1126-expense-${name}"
+            image="${REGISTRY}/${repo}:${SHA}"
+            if aws ecr describe-images --repository-name "$repo" --image-ids imageTag="$SHA" >/dev/null 2>&1; then
+              echo "$image already exists, skipping build"
+              continue
+            fi
+            docker build --platform linux/amd64 --build-arg GIT_SHA="$SHA" \
+              -t "$image" -f "docker/${name}.Dockerfile" .
+            docker push "$image"
+          done
+
+      - name: Render task definition (mcp)
+        id: td-mcp
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition: ${{ env.TASK_DEF }}
+          container-name: mcp
+          image: ${{ env.REGISTRY }}/akinsds1126-expense-mcp:${{ env.SHA }}
+
+      - name: Render task definition (agent-api)
+        id: td-agent
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition: ${{ steps.td-mcp.outputs.task-definition }}
+          container-name: agent-api
+          image: ${{ env.REGISTRY }}/akinsds1126-expense-agent:${{ env.SHA }}
+
+      - name: Render task definition (ui)
+        id: td-ui
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition: ${{ steps.td-agent.outputs.task-definition }}
+          container-name: ui
+          image: ${{ env.REGISTRY }}/akinsds1126-expense-ui:${{ env.SHA }}
+
+      - name: Deploy and wait for the service to be stable
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v2
+        with:
+          task-definition: ${{ steps.td-ui.outputs.task-definition }}
+          cluster: ${{ env.CLUSTER }}
+          service: ${{ env.SERVICE }}
+          wait-for-service-stability: true
+          wait-for-minutes: 20
+
+      - name: Print the URL (no load balancer, so the public IP changes on each deploy)
+        run: |
+          set -euo pipefail
+          task=$(aws ecs list-tasks --cluster "$CLUSTER" --service-name "$SERVICE" \
+            --desired-status RUNNING --query 'taskArns[0]' --output text)
+          eni=$(aws ecs describe-tasks --cluster "$CLUSTER" --tasks "$task" \
+            --query "tasks[0].attachments[0].details[?name=='networkInterfaceId'].value" --output text)
+          ip=$(aws ec2 describe-network-interfaces --network-interface-ids "$eni" \
+            --query 'NetworkInterfaces[0].Association.PublicIp' --output text)
+          echo "Deployed ${SHA::7}: http://${ip}:8501" | tee -a "$GITHUB_STEP_SUMMARY"
