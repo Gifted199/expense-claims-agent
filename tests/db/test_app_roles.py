@@ -71,16 +71,19 @@ def test_create_secret_happens_before_alter_role(wired: dict[str, Any]) -> None:
         "create_secret",
         "create_secret",
         "create_secret",
+        "create_secret",
         "alter:app_readonly",
         "alter:app_writer",
         "alter:app_ml",
         "alter:app_ingest",
+        "alter:app_memory",
     ]
     created = {c.kwargs["Name"]: c.kwargs for c in wired["sm"].create_secret.call_args_list}
     assert set(created) == {
         "akinsds1126-expense-db-app",
         "akinsds1126-expense-db-ml",
         "akinsds1126-expense-db-ingest",
+        "akinsds1126-expense-db-memory",
     }
     for kwargs in created.values():
         assert {"Key": "Project", "Value": "akinsds1126-expense"} in kwargs["Tags"]
@@ -110,6 +113,8 @@ def test_only_missing_secret_is_created(wired: dict[str, Any]) -> None:
             raise SecretNotFoundError(secret_id)
         if secret_id.endswith("-ingest"):
             return {"app_ingest": {"username": "app_ingest", "password": fake}}
+        if secret_id.endswith("-memory"):
+            return {"app_memory": {"username": "app_memory", "password": fake}}
         return app
 
     wired["monkeypatch"].setattr(app_roles, "get_secret_json", lookup)
@@ -129,6 +134,9 @@ def test_existing_secrets_are_reused_not_rotated(wired: dict[str, Any]) -> None:
         "akinsds1126-expense-db-ingest": {
             "app_ingest": {"username": "app_ingest", "password": ml_value}
         },
+        "akinsds1126-expense-db-memory": {
+            "app_memory": {"username": "app_memory", "password": ml_value}
+        },
     }
     seen: list[str] = []
     wired["monkeypatch"].setattr(app_roles, "get_secret_json", lambda s, sid: secrets[sid])
@@ -137,4 +145,4 @@ def test_existing_secrets_are_reused_not_rotated(wired: dict[str, Any]) -> None:
     )
     assert app_roles.main(["--profile", "x", "--create-secret"]) == 0
     wired["sm"].create_secret.assert_not_called()
-    assert seen == ["keep-ro", "keep-rw", "keep-ml", "keep-ml"]
+    assert seen == ["keep-ro", "keep-rw", "keep-ml", "keep-ml", "keep-ml"]

@@ -298,3 +298,89 @@ The single `/review-phase 4` pass found these. Per D32, only bugs and security i
 - MCP task role, image and ECS service (Phase 6), and DNS-rebinding settings for the container host name.
 - The multi-ID RAG crowding follow-up from Phase 3.
 - Anomaly model strictness: with `robust_zscore`, a merchant nobody has claimed at before scores about 0.99, so every new-merchant claim goes to a manager (seen in the smoke test, docs/MCP.md). Safe but strict; a fix belongs to the model (for example cap the new-merchant feature's z-score or calibrate per feature), not to the tools.
+
+### D38: Phase 5 scope: agent + API + UI together, lean (2026-11-26, Phase 5)
+- **Decision:** Phase 7 (the Streamlit UI) is merged into Phase 5. Lean rules from D32 apply (one review; only bug and security fixes). Langfuse tracing and the LLM comparison move to Future work (the LLM comparison to Phase 8 evaluation). Instead, every turn logs one JSON line: employee ID, a hash of the thread, tools called, guardrail flags and latency, with **no message text** and no token.
+- **Why:** The goal this week is a working agent that calls tools, end to end, with safety in code.
+
+### D39: One agent, built per request, with MCP tools over streamable HTTP (2026-11-26, Phase 5)
+- **Decision:** For each `/chat` request the API loads the 7 MCP tools with `langchain-mcp-adapters`. The connection carries the internal token and the **session's** `X-Employee-Id`. The API then builds `create_agent` (LangChain 1.x) with `AzureChatOpenAI` (`gpt-5.4-mini` from the Azure secret), the system prompt, the guardrail middleware and the Postgres checkpointer, and runs one turn.
+- **Alternatives:** One long-lived agent with an identity argument on the tools (the model could choose the identity); one MCP session shared by all users (headers can't differ per user).
+- **Why:** The identity is fixed per request, outside the model. Nothing conversational lives in the process, so memory is only what RDS holds, and it survives restarts.
+
+### D40: Chat memory: AsyncPostgresSaver in its own schema, narrow role, own secret (2026-11-26, Phase 5)
+- **Decision:**
+  - Migration 011 creates schema `agent_memory` and role `app_memory` (`USAGE, CREATE` on that schema only, `search_path = agent_memory`, 15 s statement timeout). The role has no grants on any `public` table, and `verify` checks this.
+  - Its password is stored in the Secrets Manager entry named `akinsds1126-expense-db-memory`, set by `app_roles`.
+  - The saver's own `setup()` creates its tables there.
+  - **The checkpoint key is `e<employee_id>:<uuid>`.** The client's `thread_id` must be a UUID. One employee can't open another's conversation, even with the same `thread_id` (tested).
+- **Alternatives:** The saver's tables in `public` with `app_writer` (a memory bug could then touch claims); an in-memory saver (lost on restart, fails R6).
+
+### D41: Guardrails are deterministic middleware; output checks get one retry (2026-11-26, Phase 5)
+- **Decision:**
+  - **Input** (`before_agent`, **the LLM is not called** when it refuses): empty or over 2,000 characters; prompt-injection patterns (including identity claims such as "I am employee E0003" or "as manager approve"); investment-only messages.
+  - **Multi-intent:** messages are split into clauses. If only some clauses ask for investment advice, the turn continues with a note telling the model to decline only that part in one sentence and answer the rest.
+  - **Output** (`after_model`, final answers only):
+    - sentences that give investment advice are removed and replaced by one decline line; policy text that merely mentions shares or crypto stays
+    - every £ figure must appear in a tool result from this turn, or in the user's own message (tool JSON is decoded first, because "£" is escaped there)
+    - if the policy search covered the question, the answer must cite one of the returned section IDs
+    - on a problem, the bad answer is removed and the model gets **one** retry with feedback; if it fails again, a safe fallback message replaces it
+  - Over-limit and anomalous claims go to a human because of `submit_claim`'s code, not the prompt.
+- **Alternatives:** An LLM judge (slower and not deterministic; it's in Future work as a second layer); prompt-only rules (not enforceable).
+- **Why:** These rules are checkable by code, so they are enforced by code and tested with a scripted model.
+
+### D42: Agent API identity in the demo; manager actions are HTTP, never tools (2026-11-26, Phase 5)
+- **Decision:**
+  - The UI's demo user switcher sends `X-Demo-Employee-Id`. The API accepts it only with demo auth switched on (`--demo-auth` / `EXPENSE_DEMO_AUTH=true`, default **off**), and only for an active employee. **Production would use Amazon Cognito** (a JWT verified by the API).
+  - `GET /manager/queue` shows only the caller's **direct reports'** `pending_manager` claims.
+  - `POST /manager/claims/{id}/decision` runs as `app_writer` in one transaction: lock the claim only if it is pending **and** the caller is the claimant's manager; update the status; append a manager approval row; append an audit row. Anything else is 404, including your own claim. The database's self-approval trigger is the backstop.
+  - **Phase 6 (your decision):** because the switcher lets anyone pick a user, the UI must not be publicly open. Its security group will allow port 8501 **only from your IP**. The agent API (8000) and MCP server (8080) stay internal-only.
+- **Why:** The demo needs user switching, but the trust boundary must be explicit and switched off by default.
+
+### D43: Uploads: checked by content, stored under the caller's prefix, OCR preview without the LLM (2026-11-26, Phase 5)
+- **Decision:** `/upload` accepts PNG, JPEG or PDF by **magic bytes** (the filename and declared type are ignored), at most 5 MB (Textract's synchronous limit). The server picks the key `uploads/<employee_code>/<random>.<ext>`. It then calls the MCP `extract_receipt` directly (no LLM) for the preview. "Create a claim from this receipt" sends a prefilled chat message, so the claim still goes through `submit_claim`'s checks.
+
+### D44: claims.review_reasons is written once, at INSERT (2026-11-26, Phase 5)
+- **Decision:** Migration 012 adds `claims.review_reasons text[]`. `submit_claim` fills it with the failed-check reasons when it inserts the claim, and the manager queue shows them.
+  - `app_writer` **cannot UPDATE it**. Its column-level UPDATE stays `(status, anomaly_score, receipt_s3_key)` from 005, and 012 adds no grant.
+  - This is checked in three ways: `verify` has the column-privilege row; `verify` runs a live `UPDATE claims SET review_reasons = …` as `app_writer` inside a rolled-back transaction, which must fail with `InsufficientPrivilege` (it does); and unit tests prove no migration grants UPDATE on it and that `submit_claim` never UPDATEs.
+- **Why:** The manager must see why the system held a claim, and that record can't be rewritten afterwards.
+
+### D45: The UI holds no secrets and talks only to the agent API (2026-11-26, Phase 5)
+- **Decision:** Streamlit (theme in `.streamlit/config.toml`). It has a welcome screen with capability cards and clickable examples, chat with memory (one UUID thread per conversation), receipt upload with an OCR preview and "create a claim", My claims, and a Manager queue tab for managers only. It knows only `EXPENSE_API_URL`.
+
+### D46: Demo receipts use merchants that already exist in the data (2026-11-26, Phase 5)
+- **Decision:** The receipts are now from Green Leaf Kitchen (lunch), CityCab (taxi), Riverside Lodge (London hotel, still over the senior cap) and OfficeHub. That way the approved path in the demo is realistic: the Phase 2 model scores unseen merchants as unusual (see Phase 4 future work).
+
+### Phase 5 notes and future work (not done, by D32/D38)
+- **Local ports on this laptop:** Docker Desktop already holds 8000 and 8501, so local runs use **8001** (API) and **8502** (UI). Containers keep 8000 and 8501 (Phase 6).
+- **The smoke test isn't repeatable on the same day:** re-submitting the same taxi receipt is, correctly, a duplicate and goes to the manager.
+- Future work:
+  - Langfuse tracing
+  - the LLM comparison (Phase 8)
+  - Cognito sign-in
+  - streaming replies
+  - an LLM-based investment and off-topic classifier as a second layer
+  - PII redaction beyond "no message text in logs"
+  - a database connection pool for the API's reads
+  - the new-merchant strictness of the anomaly model
+
+### Phase 5 review fixes (2026-11-26, Phase 5)
+The single `/review-phase 5` pass found these. Per D32/D38 only bugs and security issues were fixed, and each has a test:
+- **Ordinary questions were refused as attacks.** "Why did they reject my claim?", "Which train ticket should I buy?", "Show me the instructions for submitting a hotel claim" and similar were blocked. Now:
+  - only *commands* to approve or reject are treated as injection ("approve my claim", "you should approve"), not questions about a decision
+  - "buy" or "sell" count as investment only next to a financial product
+  - "savings" is no longer a product
+  - "instructions" must be *your/system* instructions
+  - 12 allow-case tests pin this down. Checked live: "Why did they reject my claim CLM-2026-002940?" is answered from `get_claim_status`.
+- **A refused message stayed in memory.** The next turn ("please answer my previous question") sent the refused text to the model. The refusal now replaces the stored message (same ID) with "[message withheld by a guardrail]". There's a two-turn test, and it was checked live: the model replied that it can't see the withheld question.
+- **Receipt prefill** no longer writes `£None` when OCR misses a field.
+- **The S3 upload** runs in a worker thread, so it no longer blocks other API requests.
+- **The manager queue** shows employee-typed text (description, merchant, name) as plain text. A markdown image link in a description could otherwise make the manager's browser load an external URL.
+- Not fixed (nice-to-have, future work):
+  - stricter citation matching (any section of the same chapter passes today)
+  - guardrail feedback notes stay in the stored history
+  - no history trimming, and two simultaneous requests on one thread can overwrite each other's checkpoint
+  - a test of the identity-header builders
+  - an empty demo directory crashes the UI
+  - Starlette buffers the whole upload before the 5 MB check (the API is internal-only)

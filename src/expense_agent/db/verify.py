@@ -74,6 +74,13 @@ PRIVILEGE_MATRIX: tuple[tuple[str, str, str, bool], ...] = (
     ("app_writer", "policy_city_hotel_caps", "SELECT", True),
     ("app_writer", "policy_chunks", "INSERT", False),
     ("app_ml", "policy_chunks", "SELECT", False),
+    # Agent memory (011): app_memory sees none of the business tables (D40)
+    ("app_memory", "claims", "SELECT", False),
+    ("app_memory", "employees", "SELECT", False),
+    ("app_memory", "claim_labels", "SELECT", False),
+    ("app_memory", "audit_log", "SELECT", False),
+    ("app_memory", "policy_chunks", "SELECT", False),
+    ("app_memory", "approvals", "INSERT", False),
 )
 
 # (role, table, column, privilege, expected): app_writer may only move claims through the workflow.
@@ -84,6 +91,9 @@ COLUMN_PRIVILEGES: tuple[tuple[str, str, str, str, bool], ...] = (
     ("app_writer", "claims", "amount", "UPDATE", False),
     ("app_writer", "claims", "employee_id", "UPDATE", False),
     ("app_writer", "claims", "incurred_at", "UPDATE", False),
+    ("app_writer", "claims", "review_reasons", "UPDATE", False),  # set at INSERT only (D44)
+    ("app_writer", "claims", "city", "UPDATE", False),
+    ("app_writer", "claims", "nights", "UPDATE", False),
     # app_ml reads only the employee columns the model needs (007, D22)
     ("app_ml", "employees", "employee_id", "SELECT", True),
     ("app_ml", "employees", "grade", "SELECT", True),
@@ -205,14 +215,45 @@ def security_checks(conn: Any) -> list[tuple[str, bool]]:
     return results
 
 
+LOGIN_ROLES = (
+    ("writer", "app_writer"),
+    ("ml", "app_ml"),
+    ("ingest", "app_ingest"),
+    ("memory", "app_memory"),
+)
+# Must be refused for lack of privilege (never actually changes anything: rolled back, 0 rows).
+DENIED_WRITER_UPDATE_SQL = "UPDATE claims SET review_reasons = review_reasons WHERE claim_id = -1"
+
+
+def is_denied(conn: Any, statement: str) -> bool:
+    """True if running ``statement`` fails with insufficient_privilege. Always rolled back."""
+    import psycopg
+
+    class _Rollback(Exception):
+        pass
+
+    try:
+        with conn.transaction():
+            conn.execute(statement)
+            raise _Rollback
+    except psycopg.errors.InsufficientPrivilege:
+        return True
+    except _Rollback:
+        return False
+
+
 def login_checks(profile: str) -> bool:
     ok = True
-    for role, expected in (("writer", "app_writer"), ("ml", "app_ml"), ("ingest", "app_ingest")):
+    for role, expected in LOGIN_ROLES:
         with connect(role, profile) as conn:  # type: ignore[arg-type]
             user = conn.execute("SELECT current_user").fetchone()[0]
         passed = user == expected
         ok &= passed
         print(f"  [{'PASS' if passed else 'FAIL'}] {expected} can log in")
+    with connect("writer", profile, autocommit=True) as conn:
+        denied = is_denied(conn, DENIED_WRITER_UPDATE_SQL)
+    ok &= denied
+    print(f"  [{'PASS' if denied else 'FAIL'}] live: app_writer UPDATE of review_reasons is denied")
     return ok
 
 

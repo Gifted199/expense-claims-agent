@@ -122,7 +122,7 @@ async def run(url: str, token: str, employee: int, manifest: dict[str, Any]) -> 
             "score_claim_anomaly",
             category="meals",
             amount=18.5,
-            merchant="Copperleaf Kitchen",
+            merchant=manifest["receipts"][0]["vendor"],
             incurred_at=manifest["receipts"][0]["date"],
         )
         s.check("score_claim_anomaly (new claim)", not err and "score" in out, str(out))

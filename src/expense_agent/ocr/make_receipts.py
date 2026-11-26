@@ -43,7 +43,7 @@ class Receipt:
 RECEIPTS: tuple[Receipt, ...] = (
     Receipt(
         "r01",
-        "Copperleaf Kitchen",
+        "Green Leaf Kitchen",
         "12 Mill Lane, Leeds",
         3,
         (("Soup of the day", "6.50"), ("Club sandwich", "9.00"), ("Sparkling water", "3.00")),
@@ -52,7 +52,7 @@ RECEIPTS: tuple[Receipt, ...] = (
     ),
     Receipt(
         "r02",
-        "Northline Cabs",
+        "CityCab",
         "Station Road, Manchester",
         2,
         (("Station to client office", "21.00"), ("Waiting time", "3.00")),
@@ -61,7 +61,7 @@ RECEIPTS: tuple[Receipt, ...] = (
     ),
     Receipt(
         "r03",
-        "Riverside Lodge Hotel",
+        "Riverside Lodge",
         "5 Wharf Street, London",
         5,
         (("Room, 2 nights x 260.00", "520.00"),),
@@ -72,7 +72,7 @@ RECEIPTS: tuple[Receipt, ...] = (
     ),
     Receipt(
         "r04",
-        "Paperworks Stationers",
+        "OfficeHub",
         "8 Market Square, York",
         1,
         (("A4 notebooks x4", "14.00"), ("Gel pens x10", "12.40"), ("Desk organiser", "10.00")),
@@ -81,7 +81,7 @@ RECEIPTS: tuple[Receipt, ...] = (
     ),
     Receipt(  # the same lunch again: for the duplicate-claim demo
         "r05",
-        "Copperleaf Kitchen",
+        "Green Leaf Kitchen",
         "12 Mill Lane, Leeds",
         1,
         (("Soup of the day", "6.50"), ("Club sandwich", "9.00"), ("Sparkling water", "3.00")),

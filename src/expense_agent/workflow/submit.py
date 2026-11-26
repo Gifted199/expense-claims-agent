@@ -70,8 +70,8 @@ NEXT_ID_SQL = "SELECT nextval(pg_get_serial_sequence('claims', 'claim_id'))"
 INSERT_CLAIM_SQL = """
 INSERT INTO claims (claim_id, claim_ref, employee_id, category_code, amount, currency, incurred_at,
                     submitted_at, merchant, description, status, receipt_s3_key, anomaly_score,
-                    city, nights)
-VALUES (%s, %s, %s, %s, %s, 'GBP', %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    city, nights, review_reasons)
+VALUES (%s, %s, %s, %s, %s, 'GBP', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
 """
 INSERT_APPROVAL_SQL = """
 INSERT INTO approvals (claim_id, decider_type, decided_by, decision, reason,
@@ -409,6 +409,7 @@ def submit_claim(
         checks = evaluate(claim, facts, anomaly, employee.grade, now)
         status = decide(checks)
 
+        failed = [c.reason for c in checks if not c.passed]
         claim_id = int(conn.execute(NEXT_ID_SQL).fetchone()[0])
         claim_ref = f"CLM-{now.year}-{claim_id:06d}"
         conn.execute(
@@ -428,9 +429,9 @@ def submit_claim(
                 anomaly.score,
                 claim.city,
                 claim.nights,
+                failed or None,  # set here only; app_writer can't UPDATE it later (D44)
             ),
         )
-        failed = [c.reason for c in checks if not c.passed]
         if status == "approved":
             conn.execute(
                 INSERT_APPROVAL_SQL,
